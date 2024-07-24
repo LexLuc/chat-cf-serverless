@@ -1,5 +1,5 @@
 #:schema node_modules/wrangler/config-schema.json
-name = "my-first-worker"
+name = "cfw4202-bedtime-story-mvp"
 main = "src/index.js"
 compatibility_date = "2023-05-18"
 compatibility_flags = ["nodejs_compat"]
