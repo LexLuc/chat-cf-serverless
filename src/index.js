@@ -9,6 +9,7 @@
  */
 
 import OpenAI from "openai";
+import { Buffer } from 'node:buffer';
 
 export default {
   async fetch(request, env, ctx) {
@@ -22,20 +23,21 @@ export default {
       baseURL: env.OPENAI_BASE_URL,
     });
 
+    const elevenlabs_sk = env.ELEVEN_API_KEY
     const url = new URL(request.url);
     const path = url.pathname;
 
     if (path === "/transcribe") {
       return handleTranscription(request, openai);
     } else if (path === "/story") {
-      return handleBedTimeStoryChat(request, openai);
+      return handleBedTimeStoryChat(request, openai, elevenlabs_sk);
     } else {
       return new Response("Not Found", { status: 404 });
     }
   },
 };
 
-async function handleBedTimeStoryChat(request, openai) {
+async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
   if (request.method !== "POST") {
     return new Response("This endpoint only accepts POST requests", { status: 405 });
   }
@@ -65,8 +67,8 @@ async function handleBedTimeStoryChat(request, openai) {
     const chatCompletion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: messages,
-      temperature: 0.75,
-      // max_tokens: 150,
+      temperature: 1.01,
+      max_tokens: 10,
     });
 
     const assistantMessage = chatCompletion.choices[0].message;
@@ -74,9 +76,26 @@ async function handleBedTimeStoryChat(request, openai) {
     // Add the assistant's response to the dialog history
     dialogHistory.push(assistantMessage);
 
+    // Generate audio from ElevenLabs TODO: streaming by paragraph
+    const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
+      method: "POST",
+      headers: {
+        'xi-api-key': elevenlabs_sk,
+        'Content-Type': 'application/json'
+      },
+      body: `{"text":"${assistantMessage.content}","model_id":"eleven_turbo_v2_5","voice_settings":{"stability":0,"similarity_boost":1}}`
+    });
+    if (!elevenLabsResponse.ok) {
+      console.error(`Error calling 11labs, ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${elevenLabsResponse.responseBody}`)
+      throw new Error('Failed to generate audio');
+    }
+    const audioBuffer = await elevenLabsResponse.arrayBuffer();
+    const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+
     // Prepare the response body with the same structure as the request
     const responseBody = {
-      dialogHistory: dialogHistory
+      dialogHistory: dialogHistory,
+      currentAudio: audioBase64,
     };
 
     // Return only the user-assistant dialog, excluding the system message
@@ -84,7 +103,7 @@ async function handleBedTimeStoryChat(request, openai) {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (error) {
-    console.error('Error calling OpenAI API:', error);
+    console.error('Error calling API:', error);
     return new Response('Error processing your request', { status: 500 });
   }
 }
