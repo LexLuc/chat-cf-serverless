@@ -68,7 +68,7 @@ async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
       model: 'gpt-4o',
       messages: messages,
       temperature: 1.01,
-      max_tokens: 10,
+      max_tokens: 150,
     });
 
     const assistantMessage = chatCompletion.choices[0].message;
@@ -76,29 +76,48 @@ async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
     // Add the assistant's response to the dialog history
     dialogHistory.push(assistantMessage);
 
-    // Generate audio from ElevenLabs TODO: streaming by paragraph
-    const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
-      method: "POST",
-      headers: {
-        'xi-api-key': elevenlabs_sk,
-        'Content-Type': 'application/json'
-      },
-      body: `{"text":"${assistantMessage.content}","model_id":"eleven_turbo_v2_5","voice_settings":{"stability":0,"similarity_boost":1}}`
-    });
-    if (!elevenLabsResponse.ok) {
-      console.error(`Error calling 11labs, ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${elevenLabsResponse.responseBody}`)
-      throw new Error('Failed to generate audio');
+    // Split the text into paragraphs
+    const paragraphs = assistantMessage.content.split('\n').filter(para => para.trim() !== '');
+
+    // Generate audio for each paragraph
+    const audioSegments = [];
+    for (const paragraph of paragraphs) {
+      const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
+        method: "POST",
+        headers: {
+          'xi-api-key': elevenlabs_sk,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: paragraph,
+          model_id: "eleven_turbo_v2_5",
+          voice_settings: {
+            stability: 0,
+            similarity_boost: 1,
+            style: 0,
+            use_speaker_boost: true,
+          }
+        })
+      });
+
+      if (!elevenLabsResponse.ok) {
+        const errorBody = await elevenLabsResponse.text();
+        console.error(`Error calling 11labs, ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${errorBody}`);
+        throw new Error('Failed to generate audio');
+      }
+
+      const audioBuffer = await elevenLabsResponse.arrayBuffer();
+      const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+      audioSegments.push(audioBase64);
     }
-    const audioBuffer = await elevenLabsResponse.arrayBuffer();
-    const audioBase64 = Buffer.from(audioBuffer).toString('base64');
 
     // Prepare the response body with the same structure as the request
     const responseBody = {
       dialogHistory: dialogHistory,
-      currentAudio: audioBase64,
+      currentAudio: audioSegments,
     };
 
-    // Return only the user-assistant dialog, excluding the system message
+    // Return the response
     return new Response(JSON.stringify(responseBody), {
       headers: { 'Content-Type': 'application/json' }
     });
