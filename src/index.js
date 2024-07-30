@@ -68,7 +68,7 @@ async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
       model: 'gpt-4o',
       messages: messages,
       temperature: 1.01,
-      max_tokens: 150,
+      max_tokens: 30,
     });
 
     const assistantMessage = chatCompletion.choices[0].message;
@@ -101,9 +101,9 @@ async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
       });
 
       if (!elevenLabsResponse.ok) {
-        const errorBody = await elevenLabsResponse.text();
-        console.error(`Error calling 11labs, ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${errorBody}`);
-        throw new Error('Failed to generate audio');
+        const errorBody = await elevenLabsResponse.json();
+        console.error(`Error calling ElevenLabs API: ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${errorBody.detail.status}`);
+        throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
       }
 
       const audioBuffer = await elevenLabsResponse.arrayBuffer();
@@ -122,15 +122,35 @@ async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (error) {
-    console.error('Error calling API:', error);
-    return new Response('Error processing your request', { status: 500 });
+    console.error('Error in request processing:', error);
+    
+    // Handle specific OpenAI API errors
+    if (error instanceof OpenAI.APIError) {
+      return new Response(`OpenAI: ${error.status} - ${error.message}`, { status: 500 });
+    }
+    
+    // Handle ElevenLabs API errors
+    if (error.message.startsWith('ElevenLabs:')) {
+      return new Response(error.message, { status: 500 });
+    }
+    
+    // Handle other errors
+    return new Response('An unexpected error occurred', { status: 500 });
   }
 }
-
 
 async function handleTranscription(request, openai) {
   if (request.method !== "POST") {
     return new Response("Please send a POST request with audio data", { status: 400 });
+  }
+
+  const contentType = request.headers.get('Content-Type');
+  if (!contentType || !contentType.includes('multipart/form-data')) {
+    return new Response("Invalid Content-Type. Expected multipart/form-data", { status: 400 });
+  }
+  
+  if (!contentType.includes('boundary=')) {
+    return new Response("Invalid Content-Type. Missing boundary parameter", { status: 400 });
   }
 
   try {
@@ -169,9 +189,12 @@ async function handleTranscription(request, openai) {
     });
   } catch (error) {
     console.error("Error:", error);
-    if (error.response) {
-      console.error("OpenAI API response:", await error.response.text());
+    // Handle specific OpenAI API errors
+    if (error instanceof OpenAI.APIError) {
+      return new Response(`OpenAI: ${error.status} - ${error.message}`, { status: error.status || 500 });
     }
-    return new Response('Error processing your request', { status: 500 });
+    
+    // Handle other errors
+    return new Response('An unexpected error occurred', { status: 500 });
   }
 }
