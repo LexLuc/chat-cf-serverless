@@ -31,6 +31,8 @@ export default {
       return handleTranscription(request, openai);
     } else if (path === "/story") {
       return handleBedTimeStoryChat(request, openai, elevenlabs_sk);
+    } else if (path === "/visual-qa") {
+      return handleVisualQA(request, openai, elevenlabs_sk);
     } else {
       return new Response("Not Found", { status: 404 });
     }
@@ -138,6 +140,110 @@ async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
     return new Response('An unexpected error occurred', { status: 500 });
   }
 }
+
+
+async function handleVisualQA(request, openai, elevenlabs_sk) {
+  if (request.method !== "POST") {
+    return new Response("This endpoint only accepts POST requests", { status: 405 });
+  }
+
+  let dialogHistory;
+  try {
+    const body = await request.json();
+    dialogHistory = body.dialogHistory;
+
+    if (!Array.isArray(dialogHistory)) {
+      throw new Error("dialogHistory must be an array");
+    }
+  } catch (error) {
+    return new Response("Invalid request body. Expected JSON with a dialogHistory array.", { status: 400 });
+  }
+
+  if (dialogHistory.length === 0 || dialogHistory[dialogHistory.length - 1].role !== 'user') {
+    return new Response('The last message must be from the user', { status: 400 });
+  }
+
+  const messages = [
+    { role: 'system', content: 'You will act as a a early childhood educator, verbally responding to questions from of a curious child regarding the provided image in one sentence. Now let\'s begin.' },
+    ...dialogHistory
+  ];
+
+  try {
+    const chatCompletion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: messages,
+      temperature: 0.88,
+      max_tokens: 50,
+    });
+
+    const assistantMessage = chatCompletion.choices[0].message;
+
+    // Add the assistant's response to the dialog history
+    dialogHistory.push(assistantMessage);
+
+    // Split the text into paragraphs
+    const paragraphs = assistantMessage.content.split('\n').filter(para => para.trim() !== '');
+
+    // Generate audio for each paragraph
+    const audioSegments = [];
+    for (const paragraph of paragraphs) {
+      const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
+        method: "POST",
+        headers: {
+          'xi-api-key': elevenlabs_sk,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: paragraph,
+          model_id: "eleven_turbo_v2_5",
+          voice_settings: {
+            stability: 0,
+            similarity_boost: 1,
+            style: 0,
+            use_speaker_boost: true,
+          }
+        })
+      });
+
+      if (!elevenLabsResponse.ok) {
+        const errorBody = await elevenLabsResponse.json();
+        console.error(`Error calling ElevenLabs API: ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${errorBody.detail.status}`);
+        throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
+      }
+
+      const audioBuffer = await elevenLabsResponse.arrayBuffer();
+      const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+      audioSegments.push(audioBase64);
+    }
+
+    // Prepare the response body with the same structure as the request
+    const responseBody = {
+      dialogHistory: dialogHistory,
+      currentAudio: audioSegments,
+    };
+
+    // Return the response
+    return new Response(JSON.stringify(responseBody), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Error in request processing:', error);
+    
+    // Handle specific OpenAI API errors
+    if (error instanceof OpenAI.APIError) {
+      return new Response(`OpenAI: ${error.status} - ${error.message}`, { status: 500 });
+    }
+    
+    // Handle ElevenLabs API errors
+    if (error.message.startsWith('ElevenLabs:')) {
+      return new Response(error.message, { status: 500 });
+    }
+    
+    // Handle other errors
+    return new Response('An unexpected error occurred', { status: 500 });
+  }
+}
+
 
 async function handleTranscription(request, openai) {
   if (request.method !== "POST") {
