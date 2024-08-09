@@ -34,8 +34,8 @@ export default {
       return handleBedTimeStoryChat(request, openai, elevenlabs_sk);
     } else if (path === "/story/v0806") {
       return handleBedTimeStoryChatStream(request, openai, elevenlabs_sk);
-    } else if (path === "/visual-qa") {
-      return handleVisualQA(request, openai, elevenlabs_sk);
+    } else if (path === "/visual-chat") {
+      return handleVisualChat(request, openai, elevenlabs_sk);
     } else {
       return new Response("Not Found", { status: 404 });
     }
@@ -71,7 +71,7 @@ async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
   }
 
   const messages = [
-    { role: 'system', content: 'You will take on the role of a kind storyteller, POPO, telling bedtime stories to children aged 10 to 15 years at their bedtime. Please note that as a story teller, you must refrain from providing any content that is inappropriate for children and offer positive guidance to them. Moreover, your response should be in plain text without any special characters such as Markdown formatting or emoji.' },
+    { role: 'system', content: 'You will take on the role of a kind storyteller, POPO, telling bedtime stories to children aged 10 to 15 years at their bedtime. Your stories are full of friendly, magical creatures, but never scary. Please note that as a story teller, you must refrain from providing any content that is inappropriate for children and offer positive guidance to them. Moreover, your response should be in plain text without any special characters such as Markdown formatting or emoji.' },
     { role: 'assistant', content: 'Welcome to POPO\'s Storytime! What kind of magical adventure or heartwarming tale would you like to hear tonight?' },
     ...dialogHistory
   ];
@@ -114,7 +114,7 @@ async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
             text: paragraphText,
             model_id: "eleven_turbo_v2_5",
             voice_settings: {
-              stability: 0.35,
+              stability: 0.5,
               similarity_boost: 0.75,
               style: 0,
               use_speaker_boost: true,
@@ -131,14 +131,17 @@ async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
         const audioBuffer = await elevenLabsResponse.arrayBuffer();
         const audioBase64 = Buffer.from(audioBuffer).toString('base64');
         
+        // Convert to base64-encoded Data URI
+        const audioDataUri = `data:audio/mpeg;base64,${audioBase64}`;
+
         // Stream each audio segment with the full dialogHistory
         const responseChunk = {
           dialogHistory: dialogHistory,
-          currentParagraph: [{
+          currentParagraph: {
             index: index,
             text: paragraphText,
-            audio: audioBase64,
-          }]
+            audio: audioDataUri,
+          }
         };
         await writer.write(encoder.encode(JSON.stringify(responseChunk) + '\n'));
         // Log a summary of the response body
@@ -146,8 +149,8 @@ async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
         console.log('Response summary:', {
           dialogHistoryLength: responseChunk.dialogHistory.length,
           lastMessageContent: responseChunk.dialogHistory[responseChunk.dialogHistory.length - 1].content.substring(0, 100) + '...',
-          audioSegmentsIndex: responseChunk.currentParagraph[0].index,
-          totalAudioSize: responseChunk.currentParagraph.reduce((total, segment) => total + segment.length, 0)
+          audioSegmentsIndex: responseChunk.currentParagraph.index,
+          audioDataUriLength: responseChunk.currentParagraph.audio.length
         });
       }
 
@@ -155,7 +158,7 @@ async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
       console.error('Error in request processing:', error);
       const errorResponse = {
         dialogHistory: dialogHistory,
-        currentParagraph: [],
+        currentParagraph: null,
         error: error.message
       };
       await writer.write(encoder.encode(JSON.stringify(errorResponse) + '\n'));
@@ -240,7 +243,7 @@ async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
           text: paragraph,
           model_id: "eleven_turbo_v2_5",
           voice_settings: {
-            stability: 0.35,
+            stability: 0.5,
             similarity_boost: 0.75,
             style: 0,
             use_speaker_boost: true,
@@ -298,11 +301,24 @@ async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
 }
 
 
-async function handleVisualQA(request, openai, elevenlabs_sk) {
+async function handleVisualChat(request, openai, elevenlabs_sk) {
+  console.log(`[${new Date().toISOString()}] handleVisualQA: Started processing request`);
+
   if (request.method !== "POST") {
+    console.log(`[${new Date().toISOString()}] handleVisualQA: Invalid method ${request.method}`);
     return new Response("This endpoint only accepts POST requests", { status: 405 });
   }
 
+  const url = new URL(request.url);
+  const queryType = url.searchParams.get('query_type') || 'qna';
+  console.log(`[${new Date().toISOString()}] handleVisualQA: Query type: ${queryType}`);
+
+  const validQueryTypes = ['story', 'qna'];
+  if (!validQueryTypes.includes(queryType)) {
+    const errorMessage = `Invalid query_type: ${queryType}. Expected 'story' or 'qna'.`;
+    console.error(`[${new Date().toISOString()}] handleVisualQA: ${errorMessage}`);
+    return new Response(errorMessage, { status: 400, });
+  }
   let dialogHistory;
   try {
     const body = await request.json();
@@ -311,93 +327,130 @@ async function handleVisualQA(request, openai, elevenlabs_sk) {
     if (!Array.isArray(dialogHistory)) {
       throw new Error("dialogHistory must be an array");
     }
+    console.log(`[${new Date().toISOString()}] handleVisualQA: Received dialog history with ${dialogHistory.length} messages`);
   } catch (error) {
+    console.error(`[${new Date().toISOString()}] handleVisualQA: Error parsing request body`, error);
     return new Response("Invalid request body. Expected JSON with a dialogHistory array.", { status: 400 });
   }
 
   if (dialogHistory.length === 0 || dialogHistory[dialogHistory.length - 1].role !== 'user') {
+    console.log(`[${new Date().toISOString()}] handleVisualQA: Invalid dialog history structure`);
     return new Response('The last message must be from the user', { status: 400 });
   }
 
+  const systemPrompts = {
+    story: 'You are a creative storyteller. Based on the image provided, create a short, engaging story suitable for children aged 10 to 15 years. Your story should be imaginative, positive, and relate to elements seen in the image. Now Let\'s begin.',
+    qna: 'You are an childhood educator, POPO. Respond to questions about the provided image in a way that is educational and engaging for children aged 10 to 15 years. Keep your answers concise, ideally in one or two sentences. Now Let\'s begin.',
+  };
+
+  const openaiParams = {
+    story: {
+      temperature: 0.88,
+    },
+    qna: {
+      temperature: 0.33,
+    }
+  };
+
   const messages = [
-    { role: 'system', content: 'You will act as a a early childhood educator, verbally responding to questions from of a curious child regarding the provided image in one sentence. Now let\'s begin.' },
+    { role: 'system', content: systemPrompts[queryType] },
     ...dialogHistory
   ];
 
-  try {
-    const chatCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: messages,
-      temperature: 0.88,
-      max_tokens: 60,
-    });
+  let { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
 
-    const assistantMessage = chatCompletion.choices[0].message;
-
-    // Add the assistant's response to the dialog history
-    dialogHistory.push(assistantMessage);
-
-    // Split the text into paragraphs
-    const paragraphs = assistantMessage.content.split('\n').filter(para => para.trim() !== '');
-
-    // Generate audio for each paragraph
-    const audioSegments = [];
-    for (const paragraph of paragraphs) {
-      const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
-        method: "POST",
-        headers: {
-          'xi-api-key': elevenlabs_sk,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          text: paragraph,
-          model_id: "eleven_turbo_v2_5",
-          voice_settings: {
-            stability: 0,
-            similarity_boost: 1,
-            style: 0,
-            use_speaker_boost: true,
-          }
-        })
+  const streamResponse = async () => {
+    try {
+      console.log(`[${new Date().toISOString()}] handleVisualQA: Sending request to OpenAI`);
+      const chatCompletion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: messages,
+        max_tokens: 60,
+        ...openaiParams[queryType],
       });
 
-      if (!elevenLabsResponse.ok) {
-        const errorBody = await elevenLabsResponse.json();
-        console.error(`Error calling ElevenLabs API: ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${errorBody.detail.status}`);
-        throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
+      const assistantMessage = chatCompletion.choices[0].message;
+      console.log(`[${new Date().toISOString()}] handleVisualQA: Received response from OpenAI`, assistantMessage);
+
+      dialogHistory.push(assistantMessage);
+
+      const paragraphs = assistantMessage.content.split('\n').filter(para => para.trim() !== '');
+      console.log(`[${new Date().toISOString()}] handleVisualQA: Split response into ${paragraphs.length} paragraphs`);
+
+      for (let i = 0; i < paragraphs.length; i++) {
+        console.log(`[${new Date().toISOString()}] handleVisualQA: Generating audio for paragraph ${i + 1}`);
+        const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
+          method: "POST",
+          headers: {
+            'xi-api-key': elevenlabs_sk,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            text: paragraphs[i],
+            model_id: "eleven_turbo_v2_5",
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75,
+              style: 0,
+              use_speaker_boost: true,
+            }
+          })
+        });
+
+        if (!elevenLabsResponse.ok) {
+          const errorBody = await elevenLabsResponse.json();
+          console.error(`[${new Date().toISOString()}] handleVisualQA: Error calling ElevenLabs API: ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${errorBody.detail.status}`);
+          throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
+        }
+
+        const audioBuffer = await elevenLabsResponse.arrayBuffer();
+        const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+        
+        // Convert to base64-encoded Data URI
+        const audioDataUri = `data:audio/mpeg;base64,${audioBase64}`;
+
+        // Stream each audio segment with the full dialogHistory
+        const responseChunk = {
+          dialogHistory: dialogHistory,
+          currentParagraph: {
+            index: i,
+            text: paragraphs[i],
+            audio: audioDataUri,
+          }
+        };
+        await writer.write(encoder.encode(JSON.stringify(responseChunk) + '\n'));
+        
+        console.log(`[${new Date().toISOString()}] handleVisualQA: Streamed audio for paragraph ${i + 1}`);
+        console.log('Response summary:', {
+          dialogHistoryLength: responseChunk.dialogHistory.length,
+          lastMessageContent: responseChunk.dialogHistory[responseChunk.dialogHistory.length - 1].content.substring(0, 100) + '...',
+          audioSegmentsIndex: responseChunk.currentParagraph.index,
+          audioDataUriLength: responseChunk.currentParagraph.audio.length
+        });
       }
 
-      const audioBuffer = await elevenLabsResponse.arrayBuffer();
-      const audioBase64 = Buffer.from(audioBuffer).toString('base64');
-      audioSegments.push(audioBase64);
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] handleVisualQA: Error in request processing:`, error);
+      const errorResponse = {
+        dialogHistory: dialogHistory,
+        currentParagraph: null,
+        error: error.message
+      };
+      await writer.write(encoder.encode(JSON.stringify(errorResponse) + '\n'));
+    } finally {
+      await writer.close();
     }
+  };
 
-    // Prepare the response body with the same structure as the request
-    const responseBody = {
-      dialogHistory: dialogHistory,
-      currentAudio: audioSegments,
-    };
+  // Start the streaming process
+  streamResponse();
 
-    // Return the response
-    return new Response(JSON.stringify(responseBody), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } catch (error) {
-    console.error('Error in request processing:', error);
-    
-    // Handle specific OpenAI API errors
-    if (error instanceof OpenAI.APIError) {
-      return new Response(`OpenAI: ${error.status} - ${error.message}`, { status: 500 });
-    }
-    
-    // Handle ElevenLabs API errors
-    if (error.message.startsWith('ElevenLabs:')) {
-      return new Response(error.message, { status: 500 });
-    }
-    
-    // Handle other errors
-    return new Response('An unexpected error occurred', { status: 500 });
-  }
+  // Return the readable stream
+  return new Response(readable, {
+    headers: { 'Content-Type': 'application/json' }
+  });
 }
 
 
