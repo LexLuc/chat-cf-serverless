@@ -34,6 +34,8 @@ export default {
       return handleBedTimeStoryChat(request, openai, elevenlabs_sk);
     } else if (path === "/story/v0806") {
       return handleBedTimeStoryChatStream(request, openai, elevenlabs_sk);
+    } else if (path === "/textual-chat") {
+      return handleTextualChat(request, openai, elevenlabs_sk);
     } else if (path === "/visual-chat") {
       return handleVisualChat(request, openai, elevenlabs_sk);
     } else {
@@ -88,7 +90,7 @@ async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
         model: 'gpt-4o',
         messages: messages,
         temperature: 1.01,
-        max_tokens: 60,
+        // max_tokens: 60,
       });
 
       const assistantMessage = chatCompletion.choices[0].message;
@@ -433,6 +435,165 @@ async function handleVisualChat(request, openai, elevenlabs_sk) {
 
     } catch (error) {
       console.error(`[${new Date().toISOString()}] handleVisualQA: Error in request processing:`, error);
+      const errorResponse = {
+        dialogHistory: dialogHistory,
+        currentParagraph: null,
+        error: error.message
+      };
+      await writer.write(encoder.encode(JSON.stringify(errorResponse) + '\n'));
+    } finally {
+      await writer.close();
+    }
+  };
+
+  // Start the streaming process
+  streamResponse();
+
+  // Return the readable stream
+  return new Response(readable, {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+
+async function handleTextualChat(request, openai, elevenlabs_sk) {
+  console.log(`[${new Date().toISOString()}] handleTextualChat: Started processing request`);
+
+  if (request.method !== "POST") {
+    console.log(`[${new Date().toISOString()}] handleTextualChat: Invalid method ${request.method}`);
+    return new Response("This endpoint only accepts POST requests", { status: 405 });
+  }
+
+  const url = new URL(request.url);
+  const queryType = url.searchParams.get('query_type') || 'qna';
+  console.log(`[${new Date().toISOString()}] handleTextualChat: Query type: ${queryType}`);
+
+  const validQueryTypes = ['story', 'qna'];
+  if (!validQueryTypes.includes(queryType)) {
+    const errorMessage = `Invalid query_type: ${queryType}. Expected 'story' or 'qna'.`;
+    console.error(`[${new Date().toISOString()}] handleTextualChat: ${errorMessage}`);
+    return new Response(errorMessage, { status: 400, });
+  }
+  let dialogHistory;
+  try {
+    const body = await request.json();
+    dialogHistory = body.dialogHistory;
+
+    if (!Array.isArray(dialogHistory)) {
+      throw new Error("dialogHistory must be an array");
+    }
+    console.log(`[${new Date().toISOString()}] handleTextualChat: Received dialog history with ${dialogHistory.length} messages`);
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] handleTextualChat: Error parsing request body`, error);
+    return new Response("Invalid request body. Expected JSON with a dialogHistory array.", { status: 400 });
+  }
+
+  if (dialogHistory.length === 0 || dialogHistory[dialogHistory.length - 1].role !== 'user') {
+    console.log(`[${new Date().toISOString()}] handleTextualChat: Invalid dialog history structure`);
+    return new Response('The last message must be from the user', { status: 400 });
+  }
+
+  const systemPrompts = {
+    story: 'You will take on the role of a kind storyteller, POPO, telling bedtime stories to children aged 10 to 15 years at their bedtime. Your stories are full of friendly, magical creatures, but never scary. Please note that as a story teller, you must refrain from providing any content that is inappropriate for children and offer positive guidance to them. Moreover, your response should be in plain text without any special characters such as Markdown formatting or emoj',
+    qna: 'You are an childhood educator, POPO. Respond to questions in a way that is educational, engaging and interactive for children aged 10 to 15 years. Your response should be in vocal without any special characters such as Markdown formatting or emoji. Now Let\'s begin.',
+  };
+
+  const welcomePrompts = {
+    story: 'Welcome to POPO\'s Storytime! What kind of magical adventure or heartwarming tale would you like to hear tonight?',
+    qna: 'Hi, I\'m POPO. What questions do you have for me today?',
+  }
+
+  const openaiParams = {
+    story: {
+      temperature: 0.88,
+    },
+    qna: {
+      temperature: 0.33,
+    }
+  };
+
+  const messages = [
+    { role: 'system', content: systemPrompts[queryType] },
+    { role: 'assistant', content: welcomePrompts[queryType] },
+    ...dialogHistory
+  ];
+
+  let { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const streamResponse = async () => {
+    try {
+      console.log(`[${new Date().toISOString()}] handleTextualChat: Sending request to OpenAI`);
+      const chatCompletion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: messages,
+        max_tokens: 60,
+        ...openaiParams[queryType],
+      });
+
+      const assistantMessage = chatCompletion.choices[0].message;
+      console.log(`[${new Date().toISOString()}] handleTextualChat: Received response from OpenAI`, assistantMessage);
+
+      dialogHistory.push(assistantMessage);
+
+      const paragraphs = assistantMessage.content.split('\n').filter(para => para.trim() !== '' && /[a-zA-Z]/.test(para));
+      console.log(`[${new Date().toISOString()}] handleTextualChat: Split response into ${paragraphs.length} paragraphs`);
+
+      for (let i = 0; i < paragraphs.length; i++) {
+        console.log(`[${new Date().toISOString()}] handleTextualChat: Generating audio for paragraph ${i + 1}`);
+        const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
+          method: "POST",
+          headers: {
+            'xi-api-key': elevenlabs_sk,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            text: paragraphs[i],
+            model_id: "eleven_turbo_v2_5",
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75,
+              style: 0,
+              use_speaker_boost: true,
+            }
+          })
+        });
+
+        if (!elevenLabsResponse.ok) {
+          const errorBody = await elevenLabsResponse.json();
+          console.error(`[${new Date().toISOString()}] handleTextualChat: Error calling ElevenLabs API: ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${errorBody.detail.status}`);
+          throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
+        }
+
+        const audioBuffer = await elevenLabsResponse.arrayBuffer();
+        const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+        
+        // Convert to base64-encoded Data URI
+        const audioDataUri = `data:audio/mpeg;base64,${audioBase64}`;
+
+        // Stream each audio segment with the full dialogHistory
+        const responseChunk = {
+          dialogHistory: dialogHistory,
+          currentParagraph: {
+            index: i,
+            text: paragraphs[i],
+            audio: audioDataUri,
+          }
+        };
+        await writer.write(encoder.encode(JSON.stringify(responseChunk) + '\n'));
+        
+        console.log(`[${new Date().toISOString()}] handleTextualChat: Streamed audio for paragraph ${i + 1}`);
+        console.log('Response summary:', {
+          dialogHistoryLength: responseChunk.dialogHistory.length,
+          lastMessageContent: responseChunk.dialogHistory[responseChunk.dialogHistory.length - 1].content.substring(0, 100) + '...',
+          audioSegmentsIndex: responseChunk.currentParagraph.index,
+          audioDataUriLength: responseChunk.currentParagraph.audio.length
+        });
+      }
+
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] handleTextualChat: Error in request processing:`, error);
       const errorResponse = {
         dialogHistory: dialogHistory,
         currentParagraph: null,
