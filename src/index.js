@@ -345,6 +345,10 @@ async function handleVisualChat(request, openai, elevenlabs_sk) {
     qna: 'You are an childhood educator, POPO. Respond to questions about the provided image in a way that is educational and engaging for children aged 10 to 15 years. Keep your answers concise, ideally in one or two sentences. Now Let\'s begin.',
   };
 
+  const welcomePrompts = {
+    story: 'Welcome to POPO\'s Storytime! What kind of magical adventure or heartwarming tale would you like to hear tonight?',
+    qna: 'Hi, I\'m POPO. What questions do you have for me today?',
+  }
   const openaiParams = {
     story: {
       temperature: 1.01,
@@ -356,6 +360,7 @@ async function handleVisualChat(request, openai, elevenlabs_sk) {
 
   const messages = [
     { role: 'system', content: systemPrompts[queryType] },
+    { role: 'assistant', content: welcomePrompts[queryType] },
     ...dialogHistory
   ];
 
