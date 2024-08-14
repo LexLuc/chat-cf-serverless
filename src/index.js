@@ -87,7 +87,7 @@ async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
     try {
       console.log('Calling OpenAI API');
       const chatCompletion = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-4o-2024-08-06',
         messages: messages,
         temperature: 1.01,
         // max_tokens: 60,
@@ -215,7 +215,7 @@ async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
   try {
     console.log('Calling OpenAI API');
     const chatCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-4o-2024-08-06',
       messages: messages,
       temperature: 1.01,
       max_tokens: 60,
@@ -347,7 +347,7 @@ async function handleVisualChat(request, openai, elevenlabs_sk) {
 
   const openaiParams = {
     story: {
-      temperature: 0.88,
+      temperature: 1.01,
     },
     qna: {
       temperature: 0.33,
@@ -367,7 +367,7 @@ async function handleVisualChat(request, openai, elevenlabs_sk) {
     try {
       console.log(`[${new Date().toISOString()}] handleVisualQA: Sending request to OpenAI`);
       const chatCompletion = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-4o-2024-08-06',
         messages: messages,
         max_tokens: 60,
         ...openaiParams[queryType],
@@ -505,7 +505,7 @@ async function handleTextualChat(request, openai, elevenlabs_sk) {
 
   const openaiParams = {
     story: {
-      temperature: 0.88,
+      temperature: 1.01,
     },
     qna: {
       temperature: 0.33,
@@ -526,7 +526,7 @@ async function handleTextualChat(request, openai, elevenlabs_sk) {
     try {
       console.log(`[${new Date().toISOString()}] handleTextualChat: Sending request to OpenAI`);
       const chatCompletion = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-4o-2024-08-06',
         messages: messages,
         max_tokens: 60,
         ...openaiParams[queryType],
