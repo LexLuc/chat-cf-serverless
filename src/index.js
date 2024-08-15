@@ -90,7 +90,7 @@ async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
         model: 'gpt-4o-2024-08-06',
         messages: messages,
         temperature: 1.01,
-        // max_tokens: 60,
+        max_tokens: 16_384,
       });
 
       const assistantMessage = chatCompletion.choices[0].message;
@@ -352,9 +352,11 @@ async function handleVisualChat(request, openai, elevenlabs_sk) {
   const openaiParams = {
     story: {
       temperature: 1.01,
+      max_tokens: 16_384,
     },
     qna: {
       temperature: 0.33,
+      max_tokens: 60,
     }
   };
 
@@ -374,7 +376,6 @@ async function handleVisualChat(request, openai, elevenlabs_sk) {
       const chatCompletion = await openai.chat.completions.create({
         model: 'gpt-4o-2024-08-06',
         messages: messages,
-        // max_tokens: 60,
         ...openaiParams[queryType],
       });
 
@@ -511,9 +512,11 @@ async function handleTextualChat(request, openai, elevenlabs_sk) {
   const openaiParams = {
     story: {
       temperature: 1.01,
+      max_tokens: 16_384,
     },
     qna: {
       temperature: 0.33,
+      max_tokens: 60,
     }
   };
 
@@ -533,7 +536,6 @@ async function handleTextualChat(request, openai, elevenlabs_sk) {
       const chatCompletion = await openai.chat.completions.create({
         model: 'gpt-4o-2024-08-06',
         messages: messages,
-        // max_tokens: 60,
         ...openaiParams[queryType],
       });
 
