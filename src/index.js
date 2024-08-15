@@ -374,7 +374,7 @@ async function handleVisualChat(request, openai, elevenlabs_sk) {
       const chatCompletion = await openai.chat.completions.create({
         model: 'gpt-4o-2024-08-06',
         messages: messages,
-        max_tokens: 60,
+        // max_tokens: 60,
         ...openaiParams[queryType],
       });
 
@@ -533,7 +533,7 @@ async function handleTextualChat(request, openai, elevenlabs_sk) {
       const chatCompletion = await openai.chat.completions.create({
         model: 'gpt-4o-2024-08-06',
         messages: messages,
-        max_tokens: 60,
+        // max_tokens: 60,
         ...openaiParams[queryType],
       });
 
