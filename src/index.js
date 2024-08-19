@@ -30,277 +30,19 @@ export default {
 
     if (path === "/transcribe") {
       return handleTranscription(request, openai);
-    } else if (path === "/story") {
-      return handleBedTimeStoryChat(request, openai, elevenlabs_sk);
-    } else if (path === "/story/v0806") {
-      return handleBedTimeStoryChatStream(request, openai, elevenlabs_sk);
     } else if (path === "/textual-chat") {
       return handleTextualChat(request, openai, elevenlabs_sk);
     } else if (path === "/visual-chat") {
       return handleVisualChat(request, openai, elevenlabs_sk);
+    } else if (path === "/story") {
+      return handleBedTimeStoryChat(request, openai, elevenlabs_sk);
+    } else if (path === "/story/v0806") {
+      return handleBedTimeStoryChatStream(request, openai, elevenlabs_sk);
     } else {
       return new Response("Not Found", { status: 404 });
     }
   },
 };
-
-
-async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
-  console.log('Starting handleBedTimeStoryChatStream handler');
-
-  if (request.method !== "POST") {
-    console.log('Invalid request method:', request.method);
-    return new Response("This endpoint only accepts POST requests", { status: 405 });
-  }
-
-  let dialogHistory;
-  try {
-    const body = await request.json();
-    dialogHistory = body.dialogHistory;
-    console.log('Received dialogHistory:', dialogHistory);
-
-    if (!Array.isArray(dialogHistory)) {
-      throw new Error("dialogHistory must be an array");
-    }
-  } catch (error) {
-    console.error('Error parsing request body:', error);
-    return new Response("Invalid request body. Expected JSON with a dialogHistory array.", { status: 400 });
-  }
-
-  if (dialogHistory.length === 0 || dialogHistory[dialogHistory.length - 1].role !== 'user') {
-    console.log('Invalid dialogHistory: last message is not from user');
-    return new Response('The last message must be from the user', { status: 400 });
-  }
-
-  const messages = [
-    { role: 'system', content: 'You will take on the role of a kind storyteller, POPO, telling bedtime stories to children aged 10 to 15 years at their bedtime. Your stories are full of friendly, magical creatures, but never scary. Please note that as a story teller, you must refrain from providing any content that is inappropriate for children and offer positive guidance to them. Moreover, your response should be in plain text without any special characters such as Markdown formatting or emoji.' },
-    { role: 'assistant', content: 'Welcome to POPO\'s Storytime! What kind of magical adventure or heartwarming tale would you like to hear tonight?' },
-    ...dialogHistory
-  ];
-  console.log('Prepared messages for OpenAI:', messages);
-
-  let { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-  const encoder = new TextEncoder();
-
-  const streamResponse = async () => {
-    try {
-      console.log('Calling OpenAI API');
-      const chatCompletion = await openai.chat.completions.create({
-        model: 'gpt-4o-2024-08-06',
-        messages: messages,
-        temperature: 1.01,
-        max_tokens: 16_384,
-      });
-
-      const assistantMessage = chatCompletion.choices[0].message;
-      console.log('Received response from OpenAI:', assistantMessage);
-
-      // Add the assistant's response to the dialog history
-      dialogHistory.push(assistantMessage);
-
-      // Split the text into paragraphs
-      const paragraphs = assistantMessage.content.split('\n').filter(para => para.trim() !== '');
-      console.log('Split response into paragraphs:', paragraphs);
-
-      // Generate audio for each paragraph and stream it
-      for (const [index, paragraphText] of paragraphs.entries()) {
-        console.log(`Generating audio for paragraph ${index + 1}`);
-        const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
-          method: "POST",
-          headers: {
-            'xi-api-key': elevenlabs_sk,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            text: paragraphText,
-            model_id: "eleven_turbo_v2_5",
-            voice_settings: {
-              stability: 0.5,
-              similarity_boost: 0.75,
-              style: 0,
-              use_speaker_boost: true,
-            }
-          })
-        });
-
-        if (!elevenLabsResponse.ok) {
-          const errorBody = await elevenLabsResponse.json();
-          console.error(`Error calling ElevenLabs API for paragraph ${index + 1}:`, elevenLabsResponse.status, elevenLabsResponse.statusText, errorBody.detail.status);
-          throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
-        }
-
-        const audioBuffer = await elevenLabsResponse.arrayBuffer();
-        const audioBase64 = Buffer.from(audioBuffer).toString('base64');
-        
-        // Convert to base64-encoded Data URI
-        const audioDataUri = `data:audio/mpeg;base64,${audioBase64}`;
-
-        // Stream each audio segment with the full dialogHistory
-        const responseChunk = {
-          dialogHistory: dialogHistory,
-          currentParagraph: {
-            index: index,
-            text: paragraphText,
-            audio: audioDataUri,
-          }
-        };
-        await writer.write(encoder.encode(JSON.stringify(responseChunk) + '\n'));
-        // Log a summary of the response body
-        console.log(`Streamed audio for paragraph ${index + 1}`);
-        console.log('Response summary:', {
-          dialogHistoryLength: responseChunk.dialogHistory.length,
-          lastMessageContent: responseChunk.dialogHistory[responseChunk.dialogHistory.length - 1].content.substring(0, 100) + '...',
-          audioSegmentsIndex: responseChunk.currentParagraph.index,
-          audioDataUriLength: responseChunk.currentParagraph.audio.length
-        });
-      }
-
-    } catch (error) {
-      console.error('Error in request processing:', error);
-      const errorResponse = {
-        dialogHistory: dialogHistory,
-        currentParagraph: null,
-        error: error.message
-      };
-      await writer.write(encoder.encode(JSON.stringify(errorResponse) + '\n'));
-    } finally {
-      await writer.close();
-    }
-  };
-
-  // Start the streaming process
-  streamResponse();
-
-  // Return the readable stream
-  return new Response(readable, {
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
-
-
-async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
-  console.log('Starting handleBedTimeStoryChat handler');
-
-  if (request.method !== "POST") {
-    console.log('Invalid request method:', request.method);
-    return new Response("This endpoint only accepts POST requests", { status: 405 });
-  }
-
-  let dialogHistory;
-  try {
-    const body = await request.json();
-    dialogHistory = body.dialogHistory;
-    console.log('Received dialogHistory:', dialogHistory);
-
-    if (!Array.isArray(dialogHistory)) {
-      throw new Error("dialogHistory must be an array");
-    }
-  } catch (error) {
-    console.error('Error parsing request body:', error);
-    return new Response("Invalid request body. Expected JSON with a dialogHistory array.", { status: 400 });
-  }
-
-  if (dialogHistory.length === 0 || dialogHistory[dialogHistory.length - 1].role !== 'user') {
-    console.log('Invalid dialogHistory: last message is not from user');
-    return new Response('The last message must be from the user', { status: 400 });
-  }
-
-  const messages = [
-    { role: 'system', content: 'You will take on the role of a kind grandmother, Charlotte, telling bedtime stories to children aged 10 to 15 years at their bedtime. Please note that as a story teller, you must refrain from providing any content that is inappropriate for children and offer positive guidance to them. Moreover, your response should be in plain text without any special characters such as Markdown formatting or emoji.' },
-    ...dialogHistory
-  ];
-  console.log('Prepared messages for OpenAI:', messages);
-
-  try {
-    console.log('Calling OpenAI API');
-    const chatCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o-2024-08-06',
-      messages: messages,
-      temperature: 1.01,
-      max_tokens: 60,
-    });
-
-    const assistantMessage = chatCompletion.choices[0].message;
-    console.log('Received response from OpenAI:', assistantMessage);
-
-    // Add the assistant's response to the dialog history
-    dialogHistory.push(assistantMessage);
-
-    // Split the text into paragraphs
-    const paragraphs = assistantMessage.content.split('\n').filter(para => para.trim() !== '');
-    console.log('Split response into paragraphs:', paragraphs);
-
-    // Generate audio for each paragraph
-    const audioSegments = [];
-    for (const [index, paragraph] of paragraphs.entries()) {
-      console.log(`Generating audio for paragraph ${index + 1}`);
-      const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
-        method: "POST",
-        headers: {
-          'xi-api-key': elevenlabs_sk,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          text: paragraph,
-          model_id: "eleven_turbo_v2_5",
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-            style: 0,
-            use_speaker_boost: true,
-          }
-        })
-      });
-
-      if (!elevenLabsResponse.ok) {
-        const errorBody = await elevenLabsResponse.json();
-        console.error(`Error calling ElevenLabs API for paragraph ${index + 1}:`, elevenLabsResponse.status, elevenLabsResponse.statusText, errorBody.detail.status);
-        throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
-      }
-
-      const audioBuffer = await elevenLabsResponse.arrayBuffer();
-      const audioBase64 = Buffer.from(audioBuffer).toString('base64');
-      audioSegments.push(audioBase64);
-      console.log(`Generated audio for paragraph ${index + 1}`);
-    }
-
-    // Prepare the response body with the same structure as the request
-    const responseBody = {
-      dialogHistory: dialogHistory,
-      currentAudio: audioSegments,
-    };
-
-    // Log a summary of the response body
-    console.log('Response summary:', {
-      dialogHistoryLength: responseBody.dialogHistory.length,
-      lastMessageContent: responseBody.dialogHistory[responseBody.dialogHistory.length - 1].content.substring(0, 100) + '...',
-      audioSegmentsCount: responseBody.currentAudio.length,
-      totalAudioSize: responseBody.currentAudio.reduce((total, segment) => total + segment.length, 0)
-    });
-    
-    return new Response(JSON.stringify(responseBody), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } catch (error) {
-    console.error('Error in request processing:', error);
-    
-    // Handle specific OpenAI API errors
-    if (error instanceof OpenAI.APIError) {
-      console.error('OpenAI API Error:', error.status, error.message);
-      return new Response(`OpenAI: ${error.status} - ${error.message}`, { status: 500 });
-    }
-    
-    // Handle ElevenLabs API errors
-    if (error.message.startsWith('ElevenLabs:')) {
-      console.error('ElevenLabs API Error:', error.message);
-      return new Response(error.message, { status: 500 });
-    }
-    
-    console.error('Unexpected error:', error);
-    return new Response('An unexpected error occurred', { status: 500 });
-  }
-}
 
 
 async function handleVisualChat(request, openai, elevenlabs_sk) {
@@ -678,6 +420,264 @@ async function handleTranscription(request, openai) {
     }
     
     // Handle other errors
+    return new Response('An unexpected error occurred', { status: 500 });
+  }
+}
+
+
+async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
+  console.log('Starting handleBedTimeStoryChatStream handler');
+
+  if (request.method !== "POST") {
+    console.log('Invalid request method:', request.method);
+    return new Response("This endpoint only accepts POST requests", { status: 405 });
+  }
+
+  let dialogHistory;
+  try {
+    const body = await request.json();
+    dialogHistory = body.dialogHistory;
+    console.log('Received dialogHistory:', dialogHistory);
+
+    if (!Array.isArray(dialogHistory)) {
+      throw new Error("dialogHistory must be an array");
+    }
+  } catch (error) {
+    console.error('Error parsing request body:', error);
+    return new Response("Invalid request body. Expected JSON with a dialogHistory array.", { status: 400 });
+  }
+
+  if (dialogHistory.length === 0 || dialogHistory[dialogHistory.length - 1].role !== 'user') {
+    console.log('Invalid dialogHistory: last message is not from user');
+    return new Response('The last message must be from the user', { status: 400 });
+  }
+
+  const messages = [
+    { role: 'system', content: 'You will take on the role of a kind storyteller, POPO, telling bedtime stories to children aged 10 to 15 years at their bedtime. Your stories are full of friendly, magical creatures, but never scary. Please note that as a story teller, you must refrain from providing any content that is inappropriate for children and offer positive guidance to them. Moreover, your response should be in plain text without any special characters such as Markdown formatting or emoji.' },
+    { role: 'assistant', content: 'Welcome to POPO\'s Storytime! What kind of magical adventure or heartwarming tale would you like to hear tonight?' },
+    ...dialogHistory
+  ];
+  console.log('Prepared messages for OpenAI:', messages);
+
+  let { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const streamResponse = async () => {
+    try {
+      console.log('Calling OpenAI API');
+      const chatCompletion = await openai.chat.completions.create({
+        model: 'gpt-4o-2024-08-06',
+        messages: messages,
+        temperature: 1.01,
+        max_tokens: 16_384,
+      });
+
+      const assistantMessage = chatCompletion.choices[0].message;
+      console.log('Received response from OpenAI:', assistantMessage);
+
+      // Add the assistant's response to the dialog history
+      dialogHistory.push(assistantMessage);
+
+      // Split the text into paragraphs
+      const paragraphs = assistantMessage.content.split('\n').filter(para => para.trim() !== '');
+      console.log('Split response into paragraphs:', paragraphs);
+
+      // Generate audio for each paragraph and stream it
+      for (const [index, paragraphText] of paragraphs.entries()) {
+        console.log(`Generating audio for paragraph ${index + 1}`);
+        const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
+          method: "POST",
+          headers: {
+            'xi-api-key': elevenlabs_sk,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            text: paragraphText,
+            model_id: "eleven_turbo_v2_5",
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75,
+              style: 0,
+              use_speaker_boost: true,
+            }
+          })
+        });
+
+        if (!elevenLabsResponse.ok) {
+          const errorBody = await elevenLabsResponse.json();
+          console.error(`Error calling ElevenLabs API for paragraph ${index + 1}:`, elevenLabsResponse.status, elevenLabsResponse.statusText, errorBody.detail.status);
+          throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
+        }
+
+        const audioBuffer = await elevenLabsResponse.arrayBuffer();
+        const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+        
+        // Convert to base64-encoded Data URI
+        const audioDataUri = `data:audio/mpeg;base64,${audioBase64}`;
+
+        // Stream each audio segment with the full dialogHistory
+        const responseChunk = {
+          dialogHistory: dialogHistory,
+          currentParagraph: {
+            index: index,
+            text: paragraphText,
+            audio: audioDataUri,
+          }
+        };
+        await writer.write(encoder.encode(JSON.stringify(responseChunk) + '\n'));
+        // Log a summary of the response body
+        console.log(`Streamed audio for paragraph ${index + 1}`);
+        console.log('Response summary:', {
+          dialogHistoryLength: responseChunk.dialogHistory.length,
+          lastMessageContent: responseChunk.dialogHistory[responseChunk.dialogHistory.length - 1].content.substring(0, 100) + '...',
+          audioSegmentsIndex: responseChunk.currentParagraph.index,
+          audioDataUriLength: responseChunk.currentParagraph.audio.length
+        });
+      }
+
+    } catch (error) {
+      console.error('Error in request processing:', error);
+      const errorResponse = {
+        dialogHistory: dialogHistory,
+        currentParagraph: null,
+        error: error.message
+      };
+      await writer.write(encoder.encode(JSON.stringify(errorResponse) + '\n'));
+    } finally {
+      await writer.close();
+    }
+  };
+
+  // Start the streaming process
+  streamResponse();
+
+  // Return the readable stream
+  return new Response(readable, {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+
+async function handleBedTimeStoryChat(request, openai, elevenlabs_sk) {
+  console.log('Starting handleBedTimeStoryChat handler');
+
+  if (request.method !== "POST") {
+    console.log('Invalid request method:', request.method);
+    return new Response("This endpoint only accepts POST requests", { status: 405 });
+  }
+
+  let dialogHistory;
+  try {
+    const body = await request.json();
+    dialogHistory = body.dialogHistory;
+    console.log('Received dialogHistory:', dialogHistory);
+
+    if (!Array.isArray(dialogHistory)) {
+      throw new Error("dialogHistory must be an array");
+    }
+  } catch (error) {
+    console.error('Error parsing request body:', error);
+    return new Response("Invalid request body. Expected JSON with a dialogHistory array.", { status: 400 });
+  }
+
+  if (dialogHistory.length === 0 || dialogHistory[dialogHistory.length - 1].role !== 'user') {
+    console.log('Invalid dialogHistory: last message is not from user');
+    return new Response('The last message must be from the user', { status: 400 });
+  }
+
+  const messages = [
+    { role: 'system', content: 'You will take on the role of a kind grandmother, Charlotte, telling bedtime stories to children aged 10 to 15 years at their bedtime. Please note that as a story teller, you must refrain from providing any content that is inappropriate for children and offer positive guidance to them. Moreover, your response should be in plain text without any special characters such as Markdown formatting or emoji.' },
+    ...dialogHistory
+  ];
+  console.log('Prepared messages for OpenAI:', messages);
+
+  try {
+    console.log('Calling OpenAI API');
+    const chatCompletion = await openai.chat.completions.create({
+      model: 'gpt-4o-2024-08-06',
+      messages: messages,
+      temperature: 1.01,
+      max_tokens: 60,
+    });
+
+    const assistantMessage = chatCompletion.choices[0].message;
+    console.log('Received response from OpenAI:', assistantMessage);
+
+    // Add the assistant's response to the dialog history
+    dialogHistory.push(assistantMessage);
+
+    // Split the text into paragraphs
+    const paragraphs = assistantMessage.content.split('\n').filter(para => para.trim() !== '');
+    console.log('Split response into paragraphs:', paragraphs);
+
+    // Generate audio for each paragraph
+    const audioSegments = [];
+    for (const [index, paragraph] of paragraphs.entries()) {
+      console.log(`Generating audio for paragraph ${index + 1}`);
+      const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
+        method: "POST",
+        headers: {
+          'xi-api-key': elevenlabs_sk,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: paragraph,
+          model_id: "eleven_turbo_v2_5",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0,
+            use_speaker_boost: true,
+          }
+        })
+      });
+
+      if (!elevenLabsResponse.ok) {
+        const errorBody = await elevenLabsResponse.json();
+        console.error(`Error calling ElevenLabs API for paragraph ${index + 1}:`, elevenLabsResponse.status, elevenLabsResponse.statusText, errorBody.detail.status);
+        throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
+      }
+
+      const audioBuffer = await elevenLabsResponse.arrayBuffer();
+      const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+      audioSegments.push(audioBase64);
+      console.log(`Generated audio for paragraph ${index + 1}`);
+    }
+
+    // Prepare the response body with the same structure as the request
+    const responseBody = {
+      dialogHistory: dialogHistory,
+      currentAudio: audioSegments,
+    };
+
+    // Log a summary of the response body
+    console.log('Response summary:', {
+      dialogHistoryLength: responseBody.dialogHistory.length,
+      lastMessageContent: responseBody.dialogHistory[responseBody.dialogHistory.length - 1].content.substring(0, 100) + '...',
+      audioSegmentsCount: responseBody.currentAudio.length,
+      totalAudioSize: responseBody.currentAudio.reduce((total, segment) => total + segment.length, 0)
+    });
+    
+    return new Response(JSON.stringify(responseBody), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Error in request processing:', error);
+    
+    // Handle specific OpenAI API errors
+    if (error instanceof OpenAI.APIError) {
+      console.error('OpenAI API Error:', error.status, error.message);
+      return new Response(`OpenAI: ${error.status} - ${error.message}`, { status: 500 });
+    }
+    
+    // Handle ElevenLabs API errors
+    if (error.message.startsWith('ElevenLabs:')) {
+      console.error('ElevenLabs API Error:', error.message);
+      return new Response(error.message, { status: 500 });
+    }
+    
+    console.error('Unexpected error:', error);
     return new Response('An unexpected error occurred', { status: 500 });
   }
 }
