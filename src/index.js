@@ -30,15 +30,15 @@ export default {
 
     const handlers = {
       "/transcribe": (req) => handleTranscription(req, openai),
-      "/textual-chat": (req) => handleTextualChat(req, openai, elevenlabs_sk),
-      "/visual-chat": (req) => handleVisualChat(req, openai, elevenlabs_sk),
+      "/textual-chat": (req) => handleTextualChat(req, openai),
+      "/visual-chat": (req) => handleVisualChat(req, openai),
       "/story": (req) => handleBedTimeStoryChat(req, openai, elevenlabs_sk),
-      "/story/v0806": (req) => handleBedTimeStoryChatStream(req, openai, elevenlabs_sk),
+      "/story/v0806": (req) => handleBedTimeStoryChatStream(req, openai),
     };
 
     const handler = handlers[path]
     if (handler) {
-      return handler(request, openai, elevenlabs_sk);
+      return handler(request);
     } else {
       console.warn(`No handler found for path: ${path}`);
       return new Response("Not Found", { status: 404 });    }
@@ -46,17 +46,17 @@ export default {
 };
 
 
-async function handleVisualChat(request, openai, elevenlabs_sk) {
-  return handleChat(request, openai, elevenlabs_sk, true);
+async function handleVisualChat(request, openai) {
+  return handleChat(request, openai, true);
 }
 
 
-async function handleTextualChat(request, openai, elevenlabs_sk) {
-  return handleChat(request, openai, elevenlabs_sk, false);
+async function handleTextualChat(request, openai) {
+  return handleChat(request, openai, false);
 }
 
 
-async function handleChat(request, openai, elevenlabs_sk, isVisual) {
+async function handleChat(request, openai, isVisual) {
   console.log(`[${new Date().toISOString()}] handleChat: Started processing ${isVisual ? 'visual' : 'textual'} chat request`);
 
   if (request.method !== "POST") {
@@ -97,10 +97,10 @@ async function handleChat(request, openai, elevenlabs_sk, isVisual) {
   const systemPrompts = {
     story: isVisual
       ? 'You are a creative storyteller, POPO, telling bedtime stories to children aged 10 to 15 years at their bedtime based on the image provided. Your stories are full of friendly, magical creatures and relate to elements seen in the image, but never scary. Please note that as a story teller, you must refrain from providing any content that is inappropriate for children and offer positive guidance to them. Moreover, your response should be in plain text without any special characters such as Markdown formatting or emojis. Now Let\'s begin.'
-      : 'You will take on the role of a kind storyteller, POPO, telling bedtime stories to children aged 10 to 15 years at their bedtime. Your stories are full of friendly, magical creatures, but never scary. Please note that as a story teller, you must refrain from providing any content that is inappropriate for children and offer positive guidance to them. Moreover, your response should be in plain text without any special characters such as Markdown formatting or emojis. Now Let\'s begin.',
+      : 'You are a creative storyteller, POPO, telling bedtime stories to children aged 10 to 15 years at their bedtime. Your stories are full of friendly, magical creatures, but never scary. Please note that as a story teller, you must refrain from providing any content that is inappropriate for children and offer positive guidance to them. Moreover, your response should be in plain text without any special characters such as Markdown formatting or emojis. Now Let\'s begin.',
     qna: isVisual
       ? 'You are an childhood educator, POPO. Respond to questions about the provided image in a way that is informative, educational, engaging and interactive for children aged 10 to 15 years. Your response should be in vocal without any special characters such as Markdown formatting or emojis. Now Let\'s begin.'
-      : 'You are an childhood educator, POPO. Respond to questions in a way that is educational, engaging and interactive for children aged 10 to 15 years. Your response should be in vocal without any special characters such as Markdown formatting or emojis. Now Let\'s begin.',
+      : 'You are an childhood educator, POPO. Respond to questions in a way that is informative, educational, engaging and interactive for children aged 10 to 15 years. Your response should be in vocal without any special characters such as Markdown formatting or emojis. Now Let\'s begin.',
   };
 
   const welcomePrompts = {
@@ -114,8 +114,8 @@ async function handleChat(request, openai, elevenlabs_sk, isVisual) {
       max_tokens: 16_384,
     },
     qna: {
-      temperature: 0.33,
-      max_tokens: 60,
+      temperature: 0.44,
+      max_tokens: 16_384,
     }
   };
 
@@ -141,7 +141,7 @@ async function handleChat(request, openai, elevenlabs_sk, isVisual) {
 
       for (let i = 0; i < paragraphs.length; i++) {
         console.log(`[${new Date().toISOString()}] handleChat: Generating audio for paragraph ${i + 1}`);
-        const audioDataUri = await getElevenLabsAudio(elevenlabs_sk, paragraphs[i]);
+        const audioDataUri = await getOpenAIAudio(openai, paragraphs[i]);
 
         const responseChunk = {
           dialogHistory: dialogHistory,
@@ -186,7 +186,7 @@ async function handleChat(request, openai, elevenlabs_sk, isVisual) {
 
 
 async function getOpenAIChatResponse(openai, messages, params) {
-  console.log(`[${new Date().toISOString()}] getOpenAIResponse: Sending request to OpenAI`);
+  console.log(`[${new Date().toISOString()}] getOpenAIChatResponse: Sending request to OpenAI`);
   const chatCompletion = await openai.chat.completions.create({
     model: 'gpt-4o-2024-08-06',
     messages: messages,
@@ -228,6 +228,29 @@ async function getElevenLabsAudio(apiKey, text) {
   
   // Convert to base64-encoded Data URI
   return `data:audio/mpeg;base64,${audioBase64}`;
+}
+
+
+async function getOpenAIAudio(openai, text) {
+  console.log(`[${new Date().toISOString()}] getOpenAIAudio: Generating audio of text "${text.length <= 50 ? text : text.substring(0, 50) + '...' }"`);
+  try {
+    const mp3Response = await openai.audio.speech.create({
+      model: "tts-1",
+      voice: "nova",
+      input: text,
+      response_format: "mp3",
+      speed: 0.88
+    });
+
+    const audioBuffer = await mp3Response.arrayBuffer();
+    const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+    
+    // Convert to base64-encoded Data URI
+    return `data:audio/mpeg;base64,${audioBase64}`;
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] getOpenAIAudio: Error generating audio:`, error);
+    throw new Error(`OpenAI TTS: ${error.message}`);
+  }
 }
 
 
@@ -292,7 +315,7 @@ async function handleTranscription(request, openai) {
 }
 
 
-async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
+async function handleBedTimeStoryChatStream(request, openai) {
   console.log('Starting handleBedTimeStoryChatStream handler');
 
   if (request.method !== "POST") {
@@ -349,7 +372,7 @@ async function handleBedTimeStoryChatStream(request, openai, elevenlabs_sk) {
       // Generate audio for each paragraph and stream it
       for (const [index, paragraphText] of paragraphs.entries()) {
         console.log(`Generating audio for paragraph ${index + 1}`);
-        const audioDataUri = await getElevenLabsAudio(elevenlabs_sk, paragraphText);
+        const audioDataUri = await getOpenAIAudio(openai, paragraphText);
 
         // Stream each audio segment with the full dialogHistory
         const responseChunk = {
