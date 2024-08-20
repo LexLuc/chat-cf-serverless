@@ -12,6 +12,9 @@ import OpenAI from "openai";
 import { Buffer } from 'node:buffer';
 
 
+const OPENAI_TTS_TEXT_LENGTH_MAX = 4096;
+
+
 export default {
   async fetch(request, env, ctx) {
     const apiKey = request.headers.get('X-API-Key');
@@ -140,6 +143,10 @@ async function handleChat(request, openai, isVisual) {
       console.log(`[${new Date().toISOString()}] handleChat: Split response into ${paragraphs.length} paragraphs`);
 
       for (let i = 0; i < paragraphs.length; i++) {
+        if (paragraphs[i].length > OPENAI_TTS_TEXT_LENGTH_MAX) {
+          console.warn(`[${new Date().toISOString()}] handleChat: Paragraph ${i + 1} exceeds the maximum length of ${OPENAI_TTS_TEXT_LENGTH_MAX} characters.`);
+          continue;
+        }
         console.log(`[${new Date().toISOString()}] handleChat: Generating audio for paragraph ${i + 1}`);
         const audioDataUri = await getOpenAIAudio(openai, paragraphs[i]);
 
@@ -194,40 +201,6 @@ async function getOpenAIChatResponse(openai, messages, params) {
   });
 
   return chatCompletion.choices[0].message;
-}
-
-
-async function getElevenLabsAudio(apiKey, text) {
-  console.log(`[${new Date().toISOString()}] getElevenLabsAudio: Generating audio for text ${text.substring(0, 50)}...`);
-  const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
-    method: "POST",
-    headers: {
-      'xi-api-key': apiKey,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      text: text,
-      model_id: "eleven_turbo_v2_5",
-      voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75,
-        style: 0,
-        use_speaker_boost: true,
-      }
-    })
-  });
-
-  if (!elevenLabsResponse.ok) {
-    const errorBody = await elevenLabsResponse.json();
-    console.error(`[${new Date().toISOString()}] getElevenLabsAudio: Error calling ElevenLabs API: ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${errorBody.detail.status}`);
-    throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
-  }
-
-  const audioBuffer = await elevenLabsResponse.arrayBuffer();
-  const audioBase64 = Buffer.from(audioBuffer).toString('base64');
-  
-  // Convert to base64-encoded Data URI
-  return `data:audio/mpeg;base64,${audioBase64}`;
 }
 
 
@@ -312,6 +285,40 @@ async function handleTranscription(request, openai) {
     // Handle other errors
     return new Response('An unexpected error occurred', { status: 500 });
   }
+}
+
+
+async function getElevenLabsAudio(apiKey, text) {
+  console.log(`[${new Date().toISOString()}] getElevenLabsAudio: Generating audio for text ${text.substring(0, 50)}...`);
+  const elevenLabsResponse = await fetch("https://api.elevenlabs.io/v1/text-to-speech/XB0fDUnXU5powFXDhCwa", {
+    method: "POST",
+    headers: {
+      'xi-api-key': apiKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      text: text,
+      model_id: "eleven_turbo_v2_5",
+      voice_settings: {
+        stability: 0.5,
+        similarity_boost: 0.75,
+        style: 0,
+        use_speaker_boost: true,
+      }
+    })
+  });
+
+  if (!elevenLabsResponse.ok) {
+    const errorBody = await elevenLabsResponse.json();
+    console.error(`[${new Date().toISOString()}] getElevenLabsAudio: Error calling ElevenLabs API: ${elevenLabsResponse.status}, ${elevenLabsResponse.statusText}, ${errorBody.detail.status}`);
+    throw new Error(`ElevenLabs: ${elevenLabsResponse.status} - ${errorBody.detail.status}`);
+  }
+
+  const audioBuffer = await elevenLabsResponse.arrayBuffer();
+  const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+  
+  // Convert to base64-encoded Data URI
+  return `data:audio/mpeg;base64,${audioBase64}`;
 }
 
 
