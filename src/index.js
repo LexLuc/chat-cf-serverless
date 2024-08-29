@@ -19,7 +19,8 @@ import {
 import { 
   handleUserRegistration, 
   handleUserLogin,
-  handleUserInfoRetrieval
+  handleUserInfoRetrieval,
+  handleUserInfoUpdate
 } from './handlers/userHandlers.js';
 
 export default {
@@ -46,7 +47,8 @@ export default {
       "/story/v0806": (req) => handleBedTimeStoryChatStream(req, openai),
       "/auth/register": (req) => handleUserRegistration(req, env),
       "/auth/login": (req) => handleUserLogin(req, env),
-      "/user/me": (req) => handleUserInfoRetrieval(req, env),
+      "/users/me": (req) => handleUserInfoRetrieval(req, env),
+      "/users/me/updated": (req) => handleUserInfoUpdate(req, env),
     };
 
     const handler = handlers[path]

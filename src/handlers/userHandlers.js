@@ -144,6 +144,7 @@ async function createUser(env, user) {
     }
 }
 
+
 /**
  * Hash the plain text password by PBKDF2.
  * @param {Object} password.
@@ -367,8 +368,16 @@ export async function handleUserInfoRetrieval(request, env) {
             });
         }
 
+        const voiceInversedMapping = {
+            'echo': 'male',
+            'nova': 'female'
+        };
+        const returnedUser = {
+            ...user,
+            preferred_voice: voiceInversedMapping[user.preferred_voice] || user.preferred_voice
+        };
         // Return user info
-        return new Response(JSON.stringify(user), {
+        return new Response(JSON.stringify(returnedUser), {
             status: 200,
             headers: { "Content-Type": "application/json" },
         });
@@ -376,6 +385,134 @@ export async function handleUserInfoRetrieval(request, env) {
         console.error("Error in user info retrieval:", error);
         return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
+            headers: { "Content-Type": "application/json" },
+        });
+    }
+}
+
+
+/**
+ * Handler for updating user information.
+ * @param {Request} request
+ * @param {Object} env
+ * @returns {Response} 
+ */
+export async function handleUserInfoUpdate(request, env) {
+    if (request.method !== 'PUT') {
+        return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { 
+            status: 405, 
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    // Extract the token from the Authorization header
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return new Response(JSON.stringify({ error: 'Missing or invalid Authorization header' }), { 
+            status: 401, 
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    try {
+        // Verify the JWT
+        const isValid = await verify(token, env.JWT_SECRET);
+        if (!isValid) {
+            throw new Error('Invalid token');
+        }
+
+        // Decode the JWT to get the username
+        const decoded = JSON.parse(atob(token.split('.')[1]));
+        const username = decoded.sub;
+
+        // Parse the request body
+        const data = await request.json();
+        const { yob, preferred_voice: voice, cached_story_count } = data;
+
+        // Validate input
+        if (yob && (typeof yob !== 'number' || yob < 1900 || yob > new Date().getFullYear())) {
+            return new Response(JSON.stringify({ error: "Invalid year of birth" }), { 
+                status: 400, 
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+        if (voice && (voice !== 'male' && voice !== 'female')) {
+            return new Response(JSON.stringify({ error: "Invalid voice" }), { 
+                status: 400, 
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+        if (cached_story_count !== undefined && (typeof cached_story_count !== 'number' || cached_story_count < 0 || cached_story_count > 1000)) {
+            return new Response(JSON.stringify({ error: "Invalid cached story count" }), { 
+                status: 400, 
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        // Prepare the update query
+        let updateQuery = "UPDATE user_account SET ";
+        const updateValues = [];
+        const updateFields = [];
+        const voice_mapping = {
+            male: 'echo',
+            female: 'nova',
+        };
+
+        if (yob !== undefined) {
+            updateFields.push("yob = ?");
+            updateValues.push(yob);
+        }
+        if (voice !== undefined) {
+            updateFields.push("preferred_voice = ?");
+            updateValues.push(voice_mapping[voice]);
+        }
+        if (cached_story_count !== undefined) {
+            updateFields.push("cached_story_count = ?");
+            updateValues.push(cached_story_count);
+        }
+
+        if (updateFields.length === 0) {
+            return new Response(JSON.stringify({ error: "No valid fields to update" }), { 
+                status: 400, 
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        updateQuery += updateFields.join(", ") + " WHERE username = ?";
+        updateValues.push(username);
+
+        // Execute the update query
+        const result = await env.DB.prepare(updateQuery).bind(...updateValues).run();
+
+        if (result.success) {
+            // Fetch updated user info
+            const updatedUser = await env.DB.prepare("SELECT username, yob, preferred_voice, cached_story_count FROM user_account WHERE username = ?")
+                .bind(username)
+                .first();
+            const voiceInversedMapping = {
+                'echo': 'male',
+                'nova': 'female'
+            };
+            const returnedUser = {
+                ...updatedUser,
+                preferred_voice: voiceInversedMapping[updatedUser.preferred_voice] || updatedUser.preferred_voice
+            };
+            return new Response(JSON.stringify({
+                message: "User information updated successfully",
+                user: returnedUser
+            }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+            });
+        } else {
+            throw new Error('Failed to update user information');
+        }
+    } catch (error) {
+        console.error("Error in updating user info:", error);
+        return new Response(JSON.stringify({ error: "Internal Server Error" }), {
+            status: 500,
             headers: { "Content-Type": "application/json" },
         });
     }
