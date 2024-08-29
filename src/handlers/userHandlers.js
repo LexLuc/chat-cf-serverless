@@ -317,3 +317,66 @@ async function generateJWT(user, secret) {
 
     return await sign(payload, secret);
 }
+
+
+/**
+ * Handler for retrieving user information.
+ * @param {Request} request
+ * @param {Object} env
+ * @returns {Response} 
+ */
+export async function handleUserInfoRetrieval(request, env) {
+    if (request.method !== 'GET') {
+        return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { 
+            status: 405, 
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    // Extract the token from the Authorization header
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return new Response(JSON.stringify({ error: 'Missing or invalid Authorization header' }), { 
+            status: 401, 
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    try {
+        // Verify the JWT
+        const isValid = await verify(token, env.JWT_SECRET);
+        if (!isValid) {
+            throw new Error('Invalid token');
+        }
+
+        // Decode the JWT to get the username
+        const decoded = JSON.parse(atob(token.split('.')[1]));
+        const username = decoded.sub;
+
+        // Fetch user info from the database
+        const user = await env.DB.prepare("SELECT username, yob, preferred_voice, cached_story_count FROM user_account WHERE username = ?")
+            .bind(username)
+            .first();
+        
+        if (!user) {
+            return new Response(JSON.stringify({ error: "User not found" }), { 
+                status: 404, 
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        // Return user info
+        return new Response(JSON.stringify(user), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+        });
+    } catch (error) {
+        console.error("Error in user info retrieval:", error);
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+        });
+    }
+}
