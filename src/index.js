@@ -16,7 +16,7 @@ import {
   handleBedTimeStoryChatStream,
   handleBedTimeStoryChat
 } from './handlers/chatHandlers.js';
-import { handleUserRegistration } from './handlers/userHanders.js';
+import { handleUserRegistration, handleUserLogin } from './handlers/userHandlers.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -40,7 +40,8 @@ export default {
       "/visual-chat": (req) => handleVisualChat(req, openai),
       "/story": (req) => handleBedTimeStoryChat(req, openai, elevenlabs_sk),
       "/story/v0806": (req) => handleBedTimeStoryChatStream(req, openai),
-      "/users": (req) => handleUserRegistration(req, env),
+      "/auth/register": (req) => handleUserRegistration(req, env),
+      "/auth/login": (req) => handleUserLogin(req, env),
     };
 
     const handler = handlers[path]
