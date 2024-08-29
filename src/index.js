@@ -16,7 +16,7 @@ import {
   handleBedTimeStoryChatStream,
   handleBedTimeStoryChat
 } from './handlers/chatHandlers.js';
-
+import { handleUserRegistration } from './handlers/userHanders.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -40,6 +40,7 @@ export default {
       "/visual-chat": (req) => handleVisualChat(req, openai),
       "/story": (req) => handleBedTimeStoryChat(req, openai, elevenlabs_sk),
       "/story/v0806": (req) => handleBedTimeStoryChatStream(req, openai),
+      "/users": (req) => handleUserRegistration(req, env),
     };
 
     const handler = handlers[path]
@@ -47,6 +48,7 @@ export default {
       return handler(request);
     } else {
       console.warn(`No handler found for path: ${path}`);
-      return new Response("Not Found", { status: 404 });    }
+      return new Response("Not Found", { status: 404 });    
+    }
   },
 };
