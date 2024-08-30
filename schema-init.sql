@@ -20,13 +20,15 @@ INSERT INTO user_account (
     username,
     hashed_password,
     yob,
+    role,
     preferred_voice,
     cached_story_count
 ) VALUES (
     0,
-    'Lex',
-    'hahaha',
+    'aoxin-bot',
+    'f5tVDT6m/T+gVweSbX1E/DsNSkjjbHidl3QBowBg6Mvw6eVddFYUJRduUKRkB4iP',
     2024,
+    'admin',
     'echo',
     5
 );
