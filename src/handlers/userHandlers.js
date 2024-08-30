@@ -33,13 +33,13 @@ export async function handleUserRegistration(request, env) {
     const { username, plain_pw, yob, voice, story_count } = data;
 
     // Input validation
-    if (!username || typeof username !== 'string' || username.length < 2 || username.length > 30) {
+    if (!username || typeof username !== 'string' || username.length < 2 || username.length > 50) {
         return new Response(JSON.stringify({ error: "Invalid username" }), { 
             status: 400, 
             headers: { "Content-Type": "application/json" }
         });
     }
-    if (!plain_pw || typeof plain_pw !== 'string' || plain_pw.length < 8 || plain_pw.length > 30) {
+    if (!plain_pw || typeof plain_pw !== 'string' || plain_pw.length < 8 || plain_pw.length > 50) {
         return new Response(JSON.stringify({ error: "Invalid password" }), { 
             status: 400, 
             headers: { "Content-Type": "application/json" }
@@ -211,13 +211,13 @@ export async function handleUserLogin(request, env) {
     const { username, plain_pw } = data;
 
     // Input validation
-    if (!username || typeof username !== 'string' || username.length < 2 || username.length > 30) {
+    if (!username || typeof username !== 'string' || username.length < 2 || username.length > 50) {
         return new Response(JSON.stringify({ error: "Invalid username" }), {
             status: 400,
             headers: { "Content-Type": "application/json" }
         });
     }
-    if (!plain_pw || typeof plain_pw !== 'string' || plain_pw.length < 8 || plain_pw.length > 30) {
+    if (!plain_pw || typeof plain_pw !== 'string' || plain_pw.length < 8 || plain_pw.length > 50) {
         return new Response(JSON.stringify({ error: "Invalid password" }), {
             status: 400,
             headers: { "Content-Type": "application/json" }
@@ -311,9 +311,8 @@ async function verifyPassword(password, storedHash) {
 async function generateJWT(user, secret) {
     const payload = {
         sub: user.username,
-        yob: user.yob,
-        preferred_voice: user.preferred_voice,
-        exp: Math.floor(Date.now() / 1000) + (60 * 60) // 1 hour expiration
+        hpw: user.hashed_password,
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 10) // 10 days expiration
     };
 
     return await sign(payload, secret);
@@ -375,12 +374,17 @@ export async function handleUserInfoRetrieval(request, env) {
             'echo': 'male',
             'nova': 'female'
         };
-        const returnedUser = {
-            ...user,
-            preferred_voice: voiceInversedMapping[user.preferred_voice] || user.preferred_voice
+
+        // Format the response
+        const formattedResponse = {
+            username: user.username,
+            yob: user.yob,
+            voice: voiceInversedMapping[user.preferred_voice] || user.preferred_voice,
+            story_count: user.cached_story_count
         };
+
         // Return user info
-        return new Response(JSON.stringify(returnedUser), {
+        return new Response(JSON.stringify(formattedResponse), {
             status: 200,
             headers: { "Content-Type": "application/json" },
         });
@@ -501,13 +505,17 @@ export async function handleUserInfoUpdate(request, env) {
                 'echo': 'male',
                 'nova': 'female'
             };
-            const returnedUser = {
-                ...updatedUser,
-                preferred_voice: voiceInversedMapping[updatedUser.preferred_voice] || updatedUser.preferred_voice
+            
+            // Format the response
+            const formattedResponse = {
+                username: updatedUser.username,
+                yob: updatedUser.yob,
+                voice: voiceInversedMapping[updatedUser.preferred_voice] || updatedUser.preferred_voice,
+                story_count: updatedUser.cached_story_count
             };
             return new Response(JSON.stringify({
                 message: "User information updated successfully",
-                user: returnedUser
+                user: formattedResponse
             }), {
                 status: 200,
                 headers: { "Content-Type": "application/json" },
