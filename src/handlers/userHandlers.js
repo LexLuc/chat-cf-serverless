@@ -349,7 +349,10 @@ export async function handleUserInfoRetrieval(request, env) {
         // Verify the JWT
         const isValid = await verify(token, env.JWT_SECRET);
         if (!isValid) {
-            throw new Error('Invalid token');
+            return new Response(JSON.stringify({ error: 'Invalid token, please re-login' }), { 
+                status: 401, 
+                headers: { "Content-Type": "application/json" }
+            });
         }
 
         // Decode the JWT to get the username
@@ -420,7 +423,10 @@ export async function handleUserInfoUpdate(request, env) {
         // Verify the JWT
         const isValid = await verify(token, env.JWT_SECRET);
         if (!isValid) {
-            throw new Error('Invalid token');
+            return new Response(JSON.stringify({ error: 'Invalid token, please re-login' }), { 
+                status: 401, 
+                headers: { "Content-Type": "application/json" }
+            });
         }
 
         // Decode the JWT to get the username
