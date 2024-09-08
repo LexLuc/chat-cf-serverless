@@ -22,6 +22,9 @@ import {
   handleUserInfoRetrieval,
   handleUserInfoUpdate
 } from './handlers/userHandlers.js';
+import {
+  handleMobileAppGetLatestAPK,
+} from './handlers/mobileHandlers.js'
 
 export default {
   async fetch(request, env, ctx) {
@@ -49,6 +52,7 @@ export default {
       "/auth/login": (req) => handleUserLogin(req, env),
       "/users/me": (req) => handleUserInfoRetrieval(req, env),
       "/users/me/updated": (req) => handleUserInfoUpdate(req, env),
+      "/mobileapp/apks/latest": (req) => handleMobileAppGetLatestAPK(req, env),
     };
 
     const handler = handlers[path]
