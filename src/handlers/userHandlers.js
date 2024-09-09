@@ -316,53 +316,35 @@ export const handleUserInfoUpdate = withAuth(async (request, env, username) => {
             });
         }
 
-        // Prepare the update query
-        let updateQuery = "UPDATE user_account SET ";
-        const updateValues = [];
-        const updateFields = [];
         const voice_mapping = {
             male: 'echo',
             female: 'nova',
         };
 
-        if (yob !== undefined) {
-            updateFields.push("yob = ?");
-            updateValues.push(yob);
-        }
-        if (voice !== undefined) {
-            updateFields.push("preferred_voice = ?");
-            updateValues.push(voice_mapping[voice]);
-        }
-        if (cached_story_count !== undefined) {
-            updateFields.push("cached_story_count = ?");
-            updateValues.push(cached_story_count);
-        }
+        const updateData = {
+            ...(yob !== undefined && { yob }),
+            ...(voice !== undefined && { preferred_voice: voice_mapping[voice] }),
+            ...(cached_story_count !== undefined && { cached_story_count })
+        };
 
-        if (updateFields.length === 0) {
+        if (Object.keys(updateData).length === 0) {
             return new Response(JSON.stringify({ error: "No valid fields to update" }), { 
                 status: 400, 
                 headers: { "Content-Type": "application/json" }
             });
         }
 
-        updateQuery += updateFields.join(", ") + " WHERE username = ?";
-        updateValues.push(username);
-
-        // Execute the update query
-        const result = await env.DB.prepare(updateQuery).bind(...updateValues).run();
-
+        const result = await updateUser(env, username, updateData);
         if (result.success) {
-            // Fetch updated user info
-            const updatedUser = await env.DB.prepare("SELECT username, yob, preferred_voice, cached_story_count FROM user_account WHERE username = ?")
-                .bind(username)
-                .first();
+            const updatedUser = await getUserByUsername(env, username);
+
             const voiceInversedMapping = {
                 'echo': 'male',
                 'nova': 'female'
             };
             
             // Format the response
-            const formattedResponse = {
+            const updatedResponse = {
                 username: updatedUser.username,
                 yob: updatedUser.yob,
                 voice: voiceInversedMapping[updatedUser.preferred_voice] || updatedUser.preferred_voice,
@@ -370,7 +352,7 @@ export const handleUserInfoUpdate = withAuth(async (request, env, username) => {
             };
             return new Response(JSON.stringify({
                 message: "User information updated successfully",
-                user: formattedResponse
+                user: updatedResponse
             }), {
                 status: 200,
                 headers: { "Content-Type": "application/json" },
@@ -386,3 +368,19 @@ export const handleUserInfoUpdate = withAuth(async (request, env, username) => {
         });
     }
 });
+
+async function updateUser(env, username, updateData) {
+    try {
+        const updateFields = Object.keys(updateData).map(key => `${key} = ?`).join(", ");
+        const updateValues = Object.values(updateData);
+
+        const query = `UPDATE user_account SET ${updateFields} WHERE username = ?`;
+        updateValues.push(username);
+
+        const result = await env.DB.prepare(query).bind(...updateValues).run();
+        return { success: true, result };
+    } catch (error) {
+        console.error("Database update error:", error);
+        return { success: false, error };
+    }
+}
