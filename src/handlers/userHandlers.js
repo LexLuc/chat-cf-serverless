@@ -2,7 +2,8 @@
  * User Handlers logic
  */
 
-import { hashPassword, verifyPassword, generateJWT, verifyJWT } from "../common/auth";
+import { hashPassword, verifyPassword, generateJWT } from "../common/auth";
+import { withAuth } from "../middleware/authMiddleware";
 
 /**
  * Handler for user registration.
@@ -231,7 +232,7 @@ export async function handleUserLogin(request, env) {
  * @param {Object} env
  * @returns {Response} 
  */
-export async function handleUserInfoRetrieval(request, env) {
+export const handleUserInfoRetrieval = withAuth(async (request, env, username) => {
     if (request.method !== 'GET') {
         return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { 
             status: 405, 
@@ -239,31 +240,7 @@ export async function handleUserInfoRetrieval(request, env) {
         });
     }
 
-    // Extract the token from the Authorization header
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return new Response(JSON.stringify({ error: 'Missing or invalid Authorization header' }), { 
-            status: 401, 
-            headers: { "Content-Type": "application/json" }
-        });
-    }
-
-    const token = authHeader.split(' ')[1];
-
     try {
-        // Verify the JWT
-        const isValid = await verifyJWT(token, env.JWT_SECRET);
-        if (!isValid) {
-            return new Response(JSON.stringify({ error: 'Invalid token, please re-login' }), { 
-                status: 401, 
-                headers: { "Content-Type": "application/json" }
-            });
-        }
-
-        // Decode the JWT to get the username
-        const decoded = JSON.parse(atob(token.split('.')[1]));
-        const username = decoded.sub;
-
         // Fetch user info from the database
         const user = await getUserByUsername(env, username);
         if (!user) {
@@ -293,13 +270,12 @@ export async function handleUserInfoRetrieval(request, env) {
         });
     } catch (error) {
         console.error("Error in user info retrieval:", error);
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-            status: 401,
+        return new Response(JSON.stringify({ error: "Internal Server Error" }), {
+            status: 500,
             headers: { "Content-Type": "application/json" },
         });
     }
-}
-
+});
 
 /**
  * Handler for updating user information.
@@ -307,39 +283,15 @@ export async function handleUserInfoRetrieval(request, env) {
  * @param {Object} env
  * @returns {Response} 
  */
-export async function handleUserInfoUpdate(request, env) {
-    if (request.method !== 'PUT') {
+export const handleUserInfoUpdate = withAuth(async (request, env, username) => {
+        if (request.method !== 'PUT') {
         return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { 
             status: 405, 
             headers: { "Content-Type": "application/json" }
         });
     }
 
-    // Extract the token from the Authorization header
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return new Response(JSON.stringify({ error: 'Missing or invalid Authorization header' }), { 
-            status: 401, 
-            headers: { "Content-Type": "application/json" }
-        });
-    }
-
-    const token = authHeader.split(' ')[1];
-
     try {
-        // Verify the JWT
-        const isValid = await verifyJWT(token, env.JWT_SECRET);
-        if (!isValid) {
-            return new Response(JSON.stringify({ error: 'Invalid token, please re-login' }), { 
-                status: 401, 
-                headers: { "Content-Type": "application/json" }
-            });
-        }
-
-        // Decode the JWT to get the username
-        const decoded = JSON.parse(atob(token.split('.')[1]));
-        const username = decoded.sub;
-
         // Parse the request body
         const data = await request.json();
         const { yob, preferred_voice: voice, cached_story_count } = data;
@@ -433,4 +385,4 @@ export async function handleUserInfoUpdate(request, env) {
             headers: { "Content-Type": "application/json" },
         });
     }
-}
+});
