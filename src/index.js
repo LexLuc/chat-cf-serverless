@@ -16,6 +16,11 @@ import {
   handleBedTimeStoryChatStream,
   handleBedTimeStoryChat
 } from './handlers/chatHandlers.js';
+import {
+  handleTranscription as handleTranscriptionVer0910,
+  handleVisualChat as handleVisualChatVer0910,
+  handleTextualChat as handleTextualChatVer0910,
+} from './handlers/chatHandlersVer0910.js'
 import { 
   handleUserRegistration, 
   handleUserLogin,
@@ -48,10 +53,15 @@ export default {
       "/visual-chat": (req) => handleVisualChat(req, openai),
       "/story": (req) => handleBedTimeStoryChat(req, openai, elevenlabs_sk),
       "/story/v0806": (req) => handleBedTimeStoryChatStream(req, openai),
+      "/transcribe/v0910": (req) => handleTranscriptionVer0910(req, openai),
+      "/textual-chat/v0910": (req) => handleTextualChatVer0910(req, env, openai),
+      "/visual-chat/v0910": (req) => handleVisualChatVer0910(req, env, openai),
+
       "/auth/register": (req) => handleUserRegistration(req, env),
       "/auth/login": (req) => handleUserLogin(req, env),
       "/users/me": (req) => handleUserInfoRetrieval(req, env),
       "/users/me/updated": (req) => handleUserInfoUpdate(req, env),
+
       "/mobileapp/apks/latest": (req) => handleMobileAppGetLatestAPK(req, env),
     };
 

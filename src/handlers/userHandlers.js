@@ -5,6 +5,7 @@
 import { hashPassword, verifyPassword, generateJWT } from "../common/auth";
 import { createUser, getUserByUsername, updateUser } from "../models/userModel";
 import { withAuth } from "../middleware/authMiddleware";
+import { VOICE_MAPPING, VOICE_INVERTED_MAPPING } from "../common/chatVoiceConfig";
 
 /**
  * Handler for user registration.
@@ -78,18 +79,12 @@ export async function handleUserRegistration(request, env) {
         // Hash the password
         const hashed_password = await hashPassword(plain_pw);
 
-        // Voice mapping
-        const voice_mapping = {
-            male: 'echo',
-            female: 'nova',
-        };
-
         // Insert user into the database
         const newUser = {
             username,
             hashed_password,
             yob,
-            preferred_voice: voice_mapping[voice],
+            preferred_voice: VOICE_MAPPING[voice],
             cached_story_count: story_count !== undefined ? story_count : 3
         };
 
@@ -213,16 +208,11 @@ export const handleUserInfoRetrieval = withAuth(async (request, env, username) =
             });
         }
 
-        const voiceInversedMapping = {
-            'echo': 'male',
-            'nova': 'female'
-        };
-
         // Format the response
         const responseBody = {
             username: user.username,
             yob: user.yob,
-            voice: voiceInversedMapping[user.preferred_voice] || user.preferred_voice,
+            voice: VOICE_INVERTED_MAPPING[user.preferred_voice] || user.preferred_voice,
             story_count: user.cached_story_count
         };
 
@@ -279,14 +269,9 @@ export const handleUserInfoUpdate = withAuth(async (request, env, username) => {
             });
         }
 
-        const voice_mapping = {
-            male: 'echo',
-            female: 'nova',
-        };
-
         const updateData = {
             ...(yob !== undefined && { yob }),
-            ...(voice !== undefined && { preferred_voice: voice_mapping[voice] }),
+            ...(voice !== undefined && { preferred_voice: VOICE_MAPPING[voice] }),
             ...(cached_story_count !== undefined && { cached_story_count })
         };
 
@@ -300,17 +285,12 @@ export const handleUserInfoUpdate = withAuth(async (request, env, username) => {
         const result = await updateUser(env, username, updateData);
         if (result.success) {
             const updatedUser = await getUserByUsername(env, username);
-
-            const voiceInversedMapping = {
-                'echo': 'male',
-                'nova': 'female'
-            };
             
             // Format the response
             const updatedResponse = {
                 username: updatedUser.username,
                 yob: updatedUser.yob,
-                voice: voiceInversedMapping[updatedUser.preferred_voice] || updatedUser.preferred_voice,
+                voice: VOICE_INVERTED_MAPPING[updatedUser.preferred_voice] || updatedUser.preferred_voice,
                 story_count: updatedUser.cached_story_count
             };
             return new Response(JSON.stringify({
