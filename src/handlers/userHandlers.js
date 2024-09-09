@@ -2,8 +2,7 @@
  * User Handlers logic
  */
 
-import { sign, verify } from '@tsndr/cloudflare-worker-jwt';
-
+import { hashPassword, verifyPassword, generateJWT, verifyJWT } from "../common/auth";
 
 /**
  * Handler for user registration.
@@ -64,12 +63,9 @@ export async function handleUserRegistration(request, env) {
         });
     }
 
-    // Check if the username already exists
     try {
-        const existingUser = await env.DB.prepare("SELECT * FROM user_account WHERE username = ?")
-            .bind(username)
-            .first();
-        
+        // Check if the username already exists
+        const existingUser = await getUserByUsername(env, username);
         if (existingUser) {
             return new Response(JSON.stringify({ error: "Username already exists" }), { 
                 status: 409, 
@@ -96,7 +92,6 @@ export async function handleUserRegistration(request, env) {
         };
 
         const result = await createUser(env, newUser);
-
         if (result.success) {
             return new Response(JSON.stringify({ message: "User created successfully" }), {
                 status: 201,
@@ -116,7 +111,6 @@ export async function handleUserRegistration(request, env) {
         });
     }
 }
-
 
 /**
  * Inserts a new user into the database.
@@ -144,44 +138,17 @@ async function createUser(env, user) {
     }
 }
 
-
 /**
- * Hash the plain text password by PBKDF2.
- * @param {Object} password.
- * @returns {Object} - Encrypted password.
+ * Retrieves a user account from the database by their username.
+ * @param {Object} env - The environment variables.
+ * @param {string} username - The username of the user account to retrieve.
+ * @returns {Promise<Object|null>} - A promise that resolves to the user account object if found, otherwise null.
  */
-async function hashPassword(password) {
-    const encoder = new TextEncoder();
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const passwordBuffer = encoder.encode(password);
-  
-    const key = await crypto.subtle.importKey(
-      'raw',
-      passwordBuffer,
-      { name: 'PBKDF2' },
-      false,
-      ['deriveBits']
-    );
-  
-    const derivedBits = await crypto.subtle.deriveBits(
-      {
-        name: 'PBKDF2',
-        salt: salt,
-        iterations: 10000,
-        hash: 'SHA-256'
-      },
-      key,
-      256
-    );
-  
-    const derivedBitsArray = new Uint8Array(derivedBits);
-    const saltAndDerivedBits = new Uint8Array(salt.length + derivedBitsArray.length);
-    saltAndDerivedBits.set(salt);
-    saltAndDerivedBits.set(derivedBitsArray, salt.length);
-  
-    return btoa(String.fromCharCode.apply(null, saltAndDerivedBits));
-  }
-
+async function getUserByUsername(env, username) {
+    return await env.DB.prepare("SELECT * FROM user_account WHERE username = ?")
+        .bind(username)
+        .first();
+}
 
 /**
  * Handler for user login.
@@ -226,10 +193,7 @@ export async function handleUserLogin(request, env) {
 
     try {
         // Fetch user from the database
-        const user = await env.DB.prepare("SELECT * FROM user_account WHERE username = ?")
-            .bind(username)
-            .first();
-        
+        const user = await getUserByUsername(env, username);        
         if (!user) {
             return new Response(JSON.stringify({ error: "Invalid username or password" }), { 
                 status: 401, 
@@ -239,7 +203,6 @@ export async function handleUserLogin(request, env) {
 
         // Verify password
         const isPasswordValid = await verifyPassword(plain_pw, user.hashed_password);
-
         if (!isPasswordValid) {
             return new Response(JSON.stringify({ error: "Invalid username or password" }), { 
                 status: 401, 
@@ -249,9 +212,8 @@ export async function handleUserLogin(request, env) {
 
         // Generate JWT
         const token = await generateJWT(user, env.JWT_SECRET);
-
         return new Response(JSON.stringify({ token }), {
-            status: 200,
+            status: 201,
             headers: { "Content-Type": "application/json" },
         });
     } catch (error) {
@@ -262,62 +224,6 @@ export async function handleUserLogin(request, env) {
         });
     }
 }
-
-/**
- * Verify the provided password against the stored hashed password.
- * @param {string} password - The plain text password to verify.
- * @param {string} storedHash - The stored hashed password.
- * @returns {boolean} - Whether the password is valid.
- */
-async function verifyPassword(password, storedHash) {
-    const decoder = new TextDecoder();
-    const storedHashBuffer = Uint8Array.from(atob(storedHash), c => c.charCodeAt(0));
-    const salt = storedHashBuffer.slice(0, 16);
-    const storedDerivedKey = storedHashBuffer.slice(16);
-
-    const encoder = new TextEncoder();
-    const passwordBuffer = encoder.encode(password);
-
-    const key = await crypto.subtle.importKey(
-        'raw',
-        passwordBuffer,
-        { name: 'PBKDF2' },
-        false,
-        ['deriveBits']
-    );
-
-    const derivedBits = await crypto.subtle.deriveBits(
-        {
-            name: 'PBKDF2',
-            salt: salt,
-            iterations: 10000,
-            hash: 'SHA-256'
-        },
-        key,
-        256
-    );
-
-    const derivedKey = new Uint8Array(derivedBits);
-
-    return crypto.subtle.timingSafeEqual(derivedKey, storedDerivedKey);
-}
-
-/**
- * Generate a JWT for the authenticated user.
- * @param {Object} user - The user object.
- * @param {string} secret - The JWT secret.
- * @returns {string} - The generated JWT.
- */
-async function generateJWT(user, secret) {
-    const payload = {
-        sub: user.username,
-        hpw: user.hashed_password,
-        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 10) // 10 days expiration
-    };
-
-    return await sign(payload, secret);
-}
-
 
 /**
  * Handler for retrieving user information.
@@ -346,7 +252,7 @@ export async function handleUserInfoRetrieval(request, env) {
 
     try {
         // Verify the JWT
-        const isValid = await verify(token, env.JWT_SECRET);
+        const isValid = await verifyJWT(token, env.JWT_SECRET);
         if (!isValid) {
             return new Response(JSON.stringify({ error: 'Invalid token, please re-login' }), { 
                 status: 401, 
@@ -359,10 +265,7 @@ export async function handleUserInfoRetrieval(request, env) {
         const username = decoded.sub;
 
         // Fetch user info from the database
-        const user = await env.DB.prepare("SELECT username, yob, preferred_voice, cached_story_count FROM user_account WHERE username = ?")
-            .bind(username)
-            .first();
-        
+        const user = await getUserByUsername(env, username);
         if (!user) {
             return new Response(JSON.stringify({ error: "User not found" }), { 
                 status: 404, 
@@ -376,7 +279,7 @@ export async function handleUserInfoRetrieval(request, env) {
         };
 
         // Format the response
-        const formattedResponse = {
+        const responseBody = {
             username: user.username,
             yob: user.yob,
             voice: voiceInversedMapping[user.preferred_voice] || user.preferred_voice,
@@ -384,7 +287,7 @@ export async function handleUserInfoRetrieval(request, env) {
         };
 
         // Return user info
-        return new Response(JSON.stringify(formattedResponse), {
+        return new Response(JSON.stringify(responseBody), {
             status: 200,
             headers: { "Content-Type": "application/json" },
         });
@@ -425,7 +328,7 @@ export async function handleUserInfoUpdate(request, env) {
 
     try {
         // Verify the JWT
-        const isValid = await verify(token, env.JWT_SECRET);
+        const isValid = await verifyJWT(token, env.JWT_SECRET);
         if (!isValid) {
             return new Response(JSON.stringify({ error: 'Invalid token, please re-login' }), { 
                 status: 401, 
