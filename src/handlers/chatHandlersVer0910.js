@@ -23,8 +23,11 @@ async function handleChat(request, env, openai, isVisual, username) {
   console.log(`[${new Date().toISOString()}] handleChat: Started processing ${isVisual ? 'visual' : 'textual'} chat request`);
 
   if (request.method !== "POST") {
-    console.log(`[${new Date().toISOString()}] handleChat: Invalid method ${request.method}`);
-    return new Response("This endpoint only accepts POST requests", { status: 405 });
+    console.error(`[${new Date().toISOString()}] handleChat: Invalid method ${request.method}`);
+    return new Response("This endpoint only accepts POST requests", { 
+      status: 405,
+      headers: { "Content-Type": "application/json" }
+    });
   }
 
   const user = await getUserByUsername(env, username);
@@ -35,6 +38,13 @@ async function handleChat(request, env, openai, isVisual, username) {
     });
   }
   const user_age = new Date().getFullYear() - user.yob;
+  if (user_age < 0) {
+    console.error(`[${new Date().toISOString()}] handleChat: Invalid yob: ${user.yob}`);
+    new Response(`Invalid year of birth: ${user.yob}`, { 
+      status: 400,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
   console.log(`[${new Date().toISOString()}] handleChat: User is of age ${user_age}`);
 
   const url = new URL(request.url);
