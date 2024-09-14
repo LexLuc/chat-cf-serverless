@@ -20,9 +20,21 @@ export async function handleMobileAppGetLatestAPK(request, env) {
     }
 
     try {
+        const url = new URL(request.url);
+        const appId = url.searchParams.get('appid');
+        const validAppId = ['story', 'qna'];
+        if (!validAppId.includes(appId)) {
+            const errorMessage = `APP ID not given or invalid. Expected "story" or "qna".`;
+            console.error(`[${new Date().toISOString()}] handleMobileAppGetLatestAPK: ${errorMessage}`);
+            return new Response(errorMessage, { 
+                status: 400,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
         const packagesListing = await env.R2_BUCKET.list({
             limit: 1000,
-            prefix: "installers",
+            prefix: `installers/latest/${appId}`,
         });
         console.log(`[${new Date().toISOString()}] handleMobileAppGetLatestAPK: R2 list result:' ${JSON.stringify(packagesListing, null, 2)}`);
         

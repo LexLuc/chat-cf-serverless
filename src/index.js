@@ -62,7 +62,7 @@ export default {
       "/users/me": (req) => handleUserInfoRetrieval(req, env),
       "/users/me/updated": (req) => handleUserInfoUpdate(req, env),
 
-      "/mobileapp/apks/latest": (req) => handleMobileAppGetLatestAPK(req, env),
+      "/apks/latest": (req) => handleMobileAppGetLatestAPK(req, env),
     };
 
     const handler = handlers[path]
