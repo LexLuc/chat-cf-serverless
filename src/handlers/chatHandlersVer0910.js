@@ -38,7 +38,7 @@ async function handleChat(request, env, openai, isVisual, username) {
   const user_age = new Date().getFullYear() - user.yob;
   if (user_age < 0) {
     console.error(`[${new Date().toISOString()}] handleChat: Invalid yob: ${user.yob}`);
-    new Response(`Invalid year of birth: ${user.yob}`, { 
+    return new Response(`Invalid year of birth: ${user.yob}`, { 
       status: 400,
       headers: { "Content-Type": "application/json" }
     });
@@ -54,12 +54,25 @@ async function handleChat(request, env, openai, isVisual, username) {
     console.error(`[${new Date().toISOString()}] handleChat: ${errorMessage}`);
     return new Response(errorMessage, { status: 400 });
   }
+
   const currentLocalTime = url.searchParams.get('current_time');
   console.log(`[${new Date().toISOString()}] handleChat: Current local time: ${currentLocalTime}`);
-  if (currentLocalTime && !isNaN(Date.parse(currentLocalTime))) {
+  if (currentLocalTime && isNaN(Date.parse(currentLocalTime))) {
     const errorMessage = `Invalid current_time: ${currentLocalTime}. Expected ISO 8601 format such as 2022-02-22T22:22:22+08:00.`;
     console.error(`[${new Date().toISOString()}] handleChat: ${errorMessage}`);
     return new Response(errorMessage, { status: 400 });
+  }
+
+  const visualTask = url.searchParams.get('visual_task');
+  console.log(`[${new Date().toISOString()}] handleChat: Visual task: ${visualTask}`);
+
+  if (visualTask) {
+    const validVisualTasks = ['Micro', 'Plants', 'Animals', 'Insects', 'Daily', 'Translation'];
+    if (!validVisualTasks.includes(visualTask)) {
+      const errorMessage = `Invalid visual_task: ${visualTask}. Expected one of ${validVisualTasks.join(', ')}.`;
+      console.error(`[${new Date().toISOString()}] handleChat: ${errorMessage}`);
+      return new Response(errorMessage, { status: 400 });
+    }
   }
 
   let dialogHistory;
@@ -85,27 +98,49 @@ async function handleChat(request, env, openai, isVisual, username) {
     return currentLocalTime ? `The current local time on the client device is ${currentLocalTime}.` : '';
   };
 
-  const baseStoryPrompt = (currentLocalTime) => `You are a creative storyteller, POPO, tasked with crafting engaging stories for a young audience, around ${user_age} years old. Your stories should be fun, imaginative, and maintain a positive, lighthearted tone. Incorporate elements like friendly, magical creatures or futuristic science fiction themes. Avoid content that feels too intense or scary.
-  
-  ${getTimeMessage(currentLocalTime)}
+  const baseStoryPrompt = (currentLocalTime, isVisual, visualTask) => {
+    let prompt = `You are a creative storyteller, POPO, tasked with crafting engaging stories for a young audience, around ${user_age} years old. Your stories should be fun, imaginative, and maintain a positive, lighthearted tone. Incorporate elements like friendly, magical creatures or futuristic science fiction themes. Avoid content that feels too intense or scary.
 
-  When concluding your story, consider the time of day, if mentioned. For instance, before 7:00 PM, wrap up with a cheerful message, like, "Storytime is over! I hope you had a fun day and are ready for more exciting adventures!" After 7:00 PM, use a more calming phrase, such as, "The story is over. Good night and have sweet dreams!" Adjust the ending to suit the time or context as needed.
+${getTimeMessage(currentLocalTime)}
 
-  Start your story in a unique, original way, avoiding common openings like "Once upon a time." Ensure the language is positive, uplifting, and appropriate for younger listeners. Use plain text only, without special characters or formatting, to avoid issues with text-to-speech functionality.
+When concluding your story, consider the time of day, if mentioned. For instance, before 7:00 PM, wrap up with a cheerful message, like, "Storytime is over! I hope you had a fun day and are ready for more exciting adventures!" After 7:00 PM, use a more calming phrase, such as, "The story is over. Good night and have sweet dreams!" Adjust the ending to suit the time or context as needed.
 
-  Now, let's begin!`;
+Start your story in a unique, original way, avoiding common openings like "Once upon a time." Ensure the language is positive, uplifting, and appropriate for younger listeners. Use plain text only, without special characters or formatting, to avoid issues with text-to-speech functionality.
 
-  const baseQnaPrompt = (currentLocalTime) => `You are an childhood educator, POPO. Respond to questions in a way that is informative, educational, engaging and interactive for a curious child. Use plain text only, without special characters or formatting, to avoid issues with text-to-speech functionality.
+Now, let's begin!`;
 
-  ${getTimeMessage(currentLocalTime)}
+    if (isVisual) {
+      prompt += '\n\nBased on the image provided.';
+      if (visualTask) {
+        prompt += ` The image is related to ${visualTask}.`;
+      }
+    }
 
-  Now Let's begin.`;
-  
-  const systemPrompts = {
-    story: isVisual ? `${baseStoryPrompt(currentLocalTime)}\n\nBased on the image provided.` : baseStoryPrompt(currentLocalTime),
-    qna: isVisual ? `${baseQnaPrompt(currentLocalTime)} Answer questions about the provided image.` : baseQnaPrompt(currentLocalTime),
+    return prompt;
   };
-  
+
+  const baseQnaPrompt = (currentLocalTime, isVisual, visualTask) => {
+    let prompt = `You are a childhood educator, POPO. Respond to questions in a way that is informative, educational, engaging, and interactive for a curious child. Use plain text only, without special characters or formatting, to avoid issues with text-to-speech functionality.
+
+${getTimeMessage(currentLocalTime)}
+
+Now, let's begin.`;
+
+    if (isVisual) {
+      prompt += '\n\nAnswer questions about the provided image.';
+      if (visualTask) {
+        prompt += ` The image is related to ${visualTask}.`;
+      }
+    }
+
+    return prompt;
+  };
+
+  const systemPrompts = {
+    story: baseStoryPrompt(currentLocalTime, isVisual, visualTask),
+    qna: baseQnaPrompt(currentLocalTime, isVisual, visualTask),
+  };
+
   const welcomePrompts = {
     story: `Welcome to POPO's Storytime! What kind of magical adventure or heartwarming tale would you like to hear?`,
     qna: `Hi, I'm POPO. What questions do you have for me today?`,
@@ -191,7 +226,6 @@ async function handleChat(request, env, openai, isVisual, username) {
   });
 }
 
-
 async function getOpenAIChatResponse(openai, messages, params) {
   console.log(`[${new Date().toISOString()}] getOpenAIChatResponse: Sending request to OpenAI`);
   const chatCompletion = await openai.chat.completions.create({
@@ -202,7 +236,6 @@ async function getOpenAIChatResponse(openai, messages, params) {
 
   return chatCompletion.choices[0].message;
 }
-
 
 async function getOpenAIAudio(openai, text, preferred_voice) {
   console.log(`[${new Date().toISOString()}] getOpenAIAudio: Generating audio by ${preferred_voice} of text "${text.length <= 50 ? text : text.substring(0, 50) + '...' }"`);
