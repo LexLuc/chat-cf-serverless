@@ -13,11 +13,9 @@ export const handleVisualChat = withAuth(async (request, env, openai, username) 
   return handleChat(request, env, openai, true, username);
 });
 
-
 export const handleTextualChat = withAuth(async (request, env, openai, username) => {
   return handleChat(request, env, openai, false, username);
 });
-
 
 async function handleChat(request, env, openai, isVisual, username) {
   console.log(`[${new Date().toISOString()}] handleChat: Started processing ${isVisual ? 'visual' : 'textual'} chat request`);
@@ -228,6 +226,111 @@ async function getOpenAIAudio(openai, text, preferred_voice) {
   }
 }
 
+export async function handleDialogHistoryTitle(request, openai) {
+  console.log(`[${new Date().toISOString()}] handleDialogHistoryTitle: Received request`);
+
+  if (request.method !== 'POST') {
+    console.log(`[${new Date().toISOString()}] handleDialogHistoryTitle: Invalid method ${request.method}`);
+    return new Response('Method Not Allowed', { status: 405 });
+  }
+
+  try {
+    const requestData = await request.json();
+    const { dialogHistory } = requestData;
+
+    console.log(`[${new Date().toISOString()}] handleDialogHistoryTitle: Validating dialog history with ${dialogHistory ? dialogHistory.length : 0} messages`);
+
+    const validationResult = isValidDialogHistory(dialogHistory);
+    if (!validationResult.isValid) {
+      console.log(`[${new Date().toISOString()}] handleDialogHistoryTitle: Invalid dialog history - ${validationResult.reason}`);
+      return new Response(`Bad Request: Invalid dialog history - ${validationResult.reason}`, { status: 400 });
+    }
+
+    const messages = [
+      {
+        role: 'system',
+        content: 'You are a creative AI assistant tasked with generating a concise and engaging title for the following conversation. The title should capture the essence of the dialog without being too long. Respond only with the title, without any additional explanation or quotation marks.'
+      },
+      ...dialogHistory,
+      {
+        role: 'user',
+        content: 'Based on this conversation, please generate a short, engaging title.'
+      }
+    ];
+
+    const params = {
+      temperature: 0.7,
+      max_tokens: 50
+    };
+
+    console.log(`[${new Date().toISOString()}] handleDialogHistoryTitle: Requesting title generation from OpenAI`);
+    const response = await getOpenAIChatResponse(openai, messages, params);
+
+    const title = response.content.trim();
+    console.log(`[${new Date().toISOString()}] handleDialogHistoryTitle: Generated title "${title.length <= 50 ? title : title.substring(0, 50) + '...'}"`)
+
+    return new Response(JSON.stringify({ title }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] handleDialogHistoryTitle: Error - ${error.message}`);
+    return new Response('Internal Server Error', { status: 500 });
+  }
+}
+
+function isValidDialogHistory(dialogHistory) {
+  if (!dialogHistory) {
+    return { isValid: false, reason: "Dialog history is missing" };
+  }
+  if (!Array.isArray(dialogHistory)) {
+    return { isValid: false, reason: "Dialog history is not an array" };
+  }
+  if (dialogHistory.length === 0) {
+    return { isValid: false, reason: "Dialog history is empty" };
+  }
+
+  const validRoles = ['user', 'assistant', 'system'];
+
+  for (let i = 0; i < dialogHistory.length; i++) {
+    const message = dialogHistory[i];
+    if (typeof message !== 'object' || message === null) {
+      return { isValid: false, reason: `Message at index ${i} is not an object` };
+    }
+    if (!validRoles.includes(message.role)) {
+      return { isValid: false, reason: `Invalid role "${message.role}" at index ${i}` };
+    }
+    
+    if (message.role === 'user') {
+      if (typeof message.content === 'string') {
+        continue;
+      }
+      if (Array.isArray(message.content)) {
+        for (let j = 0; j < message.content.length; j++) {
+          const item = message.content[j];
+          if (item.type === 'text') {
+            if (typeof item.text !== 'string') {
+              return { isValid: false, reason: `Invalid text content at index ${i}, item ${j}` };
+            }
+          } else if (item.type === 'image_url') {
+            if (!item.image_url || typeof item.image_url.url !== 'string') {
+              return { isValid: false, reason: `Invalid image_url at index ${i}, item ${j}` };
+            }
+          } else {
+            return { isValid: false, reason: `Invalid content type "${item.type}" at index ${i}, item ${j}` };
+          }
+        }
+      } else {
+        return { isValid: false, reason: `User message content at index ${i} is neither a string nor an array` };
+      }
+    } else {
+      if (typeof message.content !== 'string') {
+        return { isValid: false, reason: `Non-user message content at index ${i} is not a string` };
+      }
+    }
+  }
+  return { isValid: true };
+}
 
 export async function handleTranscription(request, openai) {
   if (request.method !== "POST") {

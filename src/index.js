@@ -20,6 +20,7 @@ import {
   handleTranscription as handleTranscriptionVer0910,
   handleVisualChat as handleVisualChatVer0910,
   handleTextualChat as handleTextualChatVer0910,
+  handleDialogHistoryTitle as handleConcludeTitleViaDialogHistory,
 } from './handlers/chatHandlersVer0910.js'
 import { 
   handleUserRegistration, 
@@ -63,6 +64,7 @@ export default {
       "/users/me/updated": (req) => handleUserInfoUpdate(req, env),
 
       "/apks/latest": (req) => handleMobileAppGetLatestAPK(req, env),
+      "/chat/title": (req) => handleConcludeTitleViaDialogHistory(req, openai),
     };
 
     const handler = handlers[path]
