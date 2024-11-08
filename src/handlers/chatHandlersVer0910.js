@@ -5,19 +5,19 @@
 import OpenAI from "openai";
 import { Buffer } from 'node:buffer';
 import { withAuth } from "../middleware/authMiddleware";
-import { getUserByUsername } from "../models/userModel";
+import { getUserByEmail } from "../models/userModel";
 
 const OPENAI_TTS_TEXT_LENGTH_MAX = 4096;
 
-export const handleVisualChat = withAuth(async (request, env, openai, username) => {
-  return handleChat(request, env, openai, true, username);
+export const handleVisualChat = withAuth(async (request, env, openai, email) => {
+  return handleChat(request, env, openai, true, email);
 });
 
-export const handleTextualChat = withAuth(async (request, env, openai, username) => {
-  return handleChat(request, env, openai, false, username);
+export const handleTextualChat = withAuth(async (request, env, openai, email) => {
+  return handleChat(request, env, openai, false, email);
 });
 
-async function handleChat(request, env, openai, isVisual, username) {
+async function handleChat(request, env, openai, isVisual, email) {
   console.log(`[${new Date().toISOString()}] handleChat: Started processing ${isVisual ? 'visual' : 'textual'} chat request`);
 
   if (request.method !== "POST") {
@@ -28,7 +28,7 @@ async function handleChat(request, env, openai, isVisual, username) {
     });
   }
 
-  const user = await getUserByUsername(env, username);
+  const user = await getUserByEmail(env, email);
   if (!user) {
     return new Response(JSON.stringify({ error: "User not found" }), { 
         status: 404, 

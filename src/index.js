@@ -16,18 +16,26 @@ import {
   handleBedTimeStoryChatStream,
   handleBedTimeStoryChat
 } from './handlers/chatHandlers.js';
+
 import {
   handleTranscription as handleTranscriptionVer0910,
   handleVisualChat as handleVisualChatVer0910,
   handleTextualChat as handleTextualChatVer0910,
   handleDialogHistoryTitle as handleConcludeTitleViaDialogHistory,
 } from './handlers/chatHandlersVer0910.js'
+
 import { 
   handleUserRegistration, 
   handleUserLogin,
+  handlePasswordReset,
   handleUserInfoRetrieval,
-  handleUserInfoUpdate
+  handleUserInfoUpdate,
 } from './handlers/userHandlers.js';
+
+import {
+  handleEmailVerification,
+} from './handlers/emailHandlers.js'
+
 import {
   handleMobileAppGetLatestAPK,
 } from './handlers/mobileHandlers.js'
@@ -58,8 +66,11 @@ export default {
       "/textual-chat/v0910": (req) => handleTextualChatVer0910(req, env, openai),
       "/visual-chat/v0910": (req) => handleVisualChatVer0910(req, env, openai),
 
+      "/auth/register/verify": (req) => handleEmailVerification(req, env),
       "/auth/register": (req) => handleUserRegistration(req, env),
       "/auth/login": (req) => handleUserLogin(req, env),
+      "/auth/reset-password/verify": (req) => handleEmailVerification(req, env),
+      "/auth/reset-password": (req) => handlePasswordReset(req, env),
       "/users/me": (req) => handleUserInfoRetrieval(req, env),
       "/users/me/updated": (req) => handleUserInfoUpdate(req, env),
 

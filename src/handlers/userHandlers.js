@@ -3,14 +3,14 @@
  */
 
 import { hashPassword, verifyPassword, generateJWT } from "../common/auth";
-import { createUser, getUserByUsername, updateUser } from "../models/userModel";
+import { createUser, getUserByEmail, updateUserByEmail } from "../models/userModel";
 import { withAuth } from "../middleware/authMiddleware";
 import { VOICE_MAPPING, VOICE_INVERTED_MAPPING } from "../common/chatVoiceConfig";
 
 /**
  * Handler for user registration.
  * @param {Request} request
- * @param {Object} user
+ * @param {Object} env
  * @returns {Response} 
  */
 export async function handleUserRegistration(request, env) {
@@ -32,7 +32,7 @@ export async function handleUserRegistration(request, env) {
     }
 
     // Parse the request body
-    const { username, plain_pw, yob, voice, story_count } = data;
+    const { email, verification_code, username, plain_pw, yob, voice, story_count } = data;
 
     // Input validation
     if (!username || typeof username !== 'string' || username.length < 2 || username.length > 50) {
@@ -66,11 +66,28 @@ export async function handleUserRegistration(request, env) {
         });
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+        return new Response(JSON.stringify({ error: "Invalid email address" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    // Verify the code
+    const storedCode = await env.VERIFICATION_CODES.get(`${email}_registration`);
+    if (!storedCode || storedCode !== verification_code) {
+        return new Response(JSON.stringify({ error: "Invalid or expired verification code" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
     try {
-        // Check if the username already exists
-        const existingUser = await getUserByUsername(env, username);
+        // Check if the email already exists
+        const existingUser = await getUserByEmail(env, email);
         if (existingUser) {
-            return new Response(JSON.stringify({ error: "Username already exists" }), { 
+            return new Response(JSON.stringify({ error: "Email already registered" }), { 
                 status: 409, 
                 headers: { "Content-Type": "application/json" }
             });
@@ -81,6 +98,7 @@ export async function handleUserRegistration(request, env) {
 
         // Insert user into the database
         const newUser = {
+            email,
             username,
             hashed_password,
             yob,
@@ -90,6 +108,9 @@ export async function handleUserRegistration(request, env) {
 
         const result = await createUser(env, newUser);
         if (result.success) {
+            // Delete the verification code after successful registration
+            await env.VERIFICATION_CODES.delete(`${email}_registration`);
+
             return new Response(JSON.stringify({ message: "User created successfully" }), {
                 status: 201,
                 headers: { "Content-Type": "application/json" },
@@ -134,11 +155,12 @@ export async function handleUserLogin(request, env) {
     }
 
     // Parse the request body
-    const { username, plain_pw } = data;
+    const { email, plain_pw } = data;
 
     // Input validation
-    if (!username || typeof username !== 'string' || username.length < 2 || username.length > 50) {
-        return new Response(JSON.stringify({ error: "Invalid username" }), {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+        return new Response(JSON.stringify({ error: "Invalid email address" }), {
             status: 400,
             headers: { "Content-Type": "application/json" }
         });
@@ -152,9 +174,9 @@ export async function handleUserLogin(request, env) {
 
     try {
         // Fetch user from the database
-        const user = await getUserByUsername(env, username);        
+        const user = await getUserByEmail(env, email);        
         if (!user) {
-            return new Response(JSON.stringify({ error: "Invalid username or password" }), { 
+            return new Response(JSON.stringify({ error: "Email is not registered" }), { 
                 status: 401, 
                 headers: { "Content-Type": "application/json" }
             });
@@ -163,7 +185,7 @@ export async function handleUserLogin(request, env) {
         // Verify password
         const isPasswordValid = await verifyPassword(plain_pw, user.hashed_password);
         if (!isPasswordValid) {
-            return new Response(JSON.stringify({ error: "Invalid username or password" }), { 
+            return new Response(JSON.stringify({ error: "Password is incorrect" }), { 
                 status: 401, 
                 headers: { "Content-Type": "application/json" }
             });
@@ -185,12 +207,87 @@ export async function handleUserLogin(request, env) {
 }
 
 /**
+ * Handler for password reset
+ */
+export async function handlePasswordReset(request, env) {
+    if (request.method !== 'POST') {
+        return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+            status: 405,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    let data;
+    try {
+        data = await request.json();
+    } catch (error) {
+        return new Response(JSON.stringify({ error: "Invalid JSON Body" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    const { email, code, new_password } = data;
+
+    // Validate inputs
+    if (!email || !code || !new_password) {
+        return new Response(JSON.stringify({ error: "Missing required fields" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+    
+    // Verify the code
+    const storedCode = await env.VERIFICATION_CODES.get(`${email}_reset-pw`);
+    if (!storedCode || storedCode !== code) {
+        return new Response(JSON.stringify({ error: "Invalid or expired verification code" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    if (typeof new_password !== 'string' || new_password.length < 8 || new_password.length > 50) {
+        return new Response(JSON.stringify({ error: "Invalid password" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    try {
+        // Hash the new password
+        const hashed_password = await hashPassword(new_password);
+
+        // Update user's password in the database
+        const result = await updateUserByEmail(env, email, { hashed_password });
+        if (!result.success) {
+            throw new Error('Failed to update password');
+        }
+
+        // Delete the verification code
+        await env.VERIFICATION_CODES.delete(`${email}_reset-pw`);
+
+        return new Response(JSON.stringify({ 
+            message: "Password reset successfully" 
+        }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (error) {
+        console.error("Error resetting password:", error);
+        return new Response(JSON.stringify({ error: "Failed to reset password" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+}
+
+/**
  * Handler for retrieving user information.
  * @param {Request} request
  * @param {Object} env
  * @returns {Response} 
  */
-export const handleUserInfoRetrieval = withAuth(async (request, env, username) => {
+export const handleUserInfoRetrieval = withAuth(async (request, env, email) => {
     if (request.method !== 'GET') {
         return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { 
             status: 405, 
@@ -200,9 +297,9 @@ export const handleUserInfoRetrieval = withAuth(async (request, env, username) =
 
     try {
         // Fetch user info from the database
-        const user = await getUserByUsername(env, username);
+        const user = await getUserByEmail(env, email);
         if (!user) {
-            return new Response(JSON.stringify({ error: "User not found" }), { 
+            return new Response(JSON.stringify({ error: "User email is not registered" }), { 
                 status: 404, 
                 headers: { "Content-Type": "application/json" }
             });
@@ -211,6 +308,7 @@ export const handleUserInfoRetrieval = withAuth(async (request, env, username) =
         // Format the response
         const responseBody = {
             username: user.username,
+            email: user.email,
             yob: user.yob,
             voice: VOICE_INVERTED_MAPPING[user.preferred_voice] || user.preferred_voice,
             story_count: user.cached_story_count
@@ -236,7 +334,7 @@ export const handleUserInfoRetrieval = withAuth(async (request, env, username) =
  * @param {Object} env
  * @returns {Response} 
  */
-export const handleUserInfoUpdate = withAuth(async (request, env, username) => {
+export const handleUserInfoUpdate = withAuth(async (request, env, email) => {
         if (request.method !== 'PUT') {
         return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { 
             status: 405, 
@@ -282,9 +380,9 @@ export const handleUserInfoUpdate = withAuth(async (request, env, username) => {
             });
         }
 
-        const result = await updateUser(env, username, updateData);
+        const result = await updateUserByEmail(env, email, updateData);
         if (result.success) {
-            const updatedUser = await getUserByUsername(env, username);
+            const updatedUser = await getUserByEmail(env, email);
             
             // Format the response
             const updatedResponse = {

@@ -50,7 +50,6 @@ export async function hashPassword(password) {
  * @returns {Promise<boolean>} - A promise that resolves to `true` if the password is correct, otherwise `false`.
  */
 export async function verifyPassword(password, storedHash) {
-  const decoder = new TextDecoder();
   const storedHashBuffer = Uint8Array.from(atob(storedHash), c => c.charCodeAt(0));
   const salt = storedHashBuffer.slice(0, 16);
   const storedDerivedKey = storedHashBuffer.slice(16);
@@ -90,7 +89,7 @@ export async function verifyPassword(password, storedHash) {
  */
 export async function generateJWT(user, secret) {
     const payload = {
-        sub: user.username,
+        sub: user.email,
         hpw: user.hashed_password,
         exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 10) // 10 days expiration
     };

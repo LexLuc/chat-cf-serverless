@@ -1,12 +1,11 @@
 DROP TABLE IF EXISTS user_account;
-CREATE TABLE user_account (
+CREATE TABLE IF NOT EXISTS user_account (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL UNIQUE,
+    username TEXT NOT NULL,
     hashed_password TEXT NOT NULL,
     yob INTEGER CHECK (yob >= 1900) NOT NULL,
-    email TEXT UNIQUE,
-    is_active BOOLEAN DEFAULT true,
-    auth_code TEXT,
+    is_vip BOOLEAN DEFAULT 1,
     role TEXT DEFAULT 'customer',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -17,6 +16,7 @@ CREATE TABLE user_account (
 
 INSERT INTO user_account (
     id,
+    email,
     username,
     hashed_password,
     yob,
@@ -25,8 +25,9 @@ INSERT INTO user_account (
     cached_story_count
 ) VALUES (
     0,
-    'aoxin-bot',
-    'f5tVDT6m/T+gVweSbX1E/DsNSkjjbHidl3QBowBg6Mvw6eVddFYUJRduUKRkB4iP',
+    'admin@aoxin.ai',
+    'aoxin-administrator',
+    'ui3ga4MqRIkMI7A1hvgdKhaaPJJNnLZRLZZ2S2RDtll++FqAGWvYKLpaDJXFhcoo', -- aoxin-ai
     2024,
     'admin',
     'echo',

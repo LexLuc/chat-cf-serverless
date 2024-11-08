@@ -35,8 +35,8 @@ export async function extractAndVerifyToken(request, env) {
 export function withAuth(handler) {
     return async (request, env, ...args) => {
         try {
-            const username = await extractAndVerifyToken(request, env);
-            return handler(request, env, ...args, username);
+            const email = await extractAndVerifyToken(request, env);
+            return handler(request, env, ...args, email);
         } catch (error) {
             if (error instanceof AuthError) {
                 return new Response(JSON.stringify({ error: error.message }), {
