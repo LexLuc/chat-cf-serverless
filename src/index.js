@@ -9,13 +9,6 @@
  */
 
 import OpenAI from "openai";
-import {
-  handleVisualChat,
-  handleTextualChat,
-  handleTranscription,
-  handleBedTimeStoryChatStream,
-  handleBedTimeStoryChat
-} from './handlers/chatHandlers.js';
 
 import {
   handleTranscription as handleTranscriptionVer0910,
@@ -57,12 +50,7 @@ export default {
     const path = url.pathname;
 
     const handlers = {
-      "/transcribe": (req) => handleTranscription(req, openai),
-      "/textual-chat": (req) => handleTextualChat(req, openai),
-      "/visual-chat": (req) => handleVisualChat(req, openai),
-      "/story": (req) => handleBedTimeStoryChat(req, openai, elevenlabs_sk),
-      "/story/v0806": (req) => handleBedTimeStoryChatStream(req, openai),
-      "/transcribe/v0910": (req) => handleTranscriptionVer0910(req, openai),
+      "/transcribe": (req) => handleTranscriptionVer0910(req, openai),
       "/textual-chat/v0910": (req) => handleTextualChatVer0910(req, env, openai),
       "/visual-chat/v0910": (req) => handleVisualChatVer0910(req, env, openai),
 
