@@ -97,7 +97,7 @@ export async function handleEmailVerification(request, env) {
         
         // Store verification code in KV with 1-hour expiration
         const key = `${email}_${type}`;
-        await env.VERIFICATION_CODES.put(key, verificationCode, { expirationTtl: 3600 * 5 });
+        await env.VERIFICATION_CODES.put(key, verificationCode, { expirationTtl: 3600 * 1 });
         
         // Send verification email
         await sendVerificationEmail(email, verificationCode, type, resend);
