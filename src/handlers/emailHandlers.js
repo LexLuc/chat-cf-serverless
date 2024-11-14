@@ -1,4 +1,6 @@
 import { Resend } from "resend";
+import { getUserByEmail } from "../models/userModel";
+
 
 /**
  * Generates a random 4-digit verification code
@@ -6,6 +8,30 @@ import { Resend } from "resend";
  */
 function generateVerificationCode() {
     return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+/**
+ * Rate limiting function to prevent abuse
+ * @param {Object} env 
+ * @param {string} email 
+ * @param {string} type 
+ * @returns {Promise<boolean>}
+ */
+async function checkRateLimit(env, email, type) {
+    const key = `ratelimit_${type}_${email}`;
+    const currentAttempts = await env.VERIFICATION_CODES.get(key);
+    
+    if (currentAttempts) {
+        const attempts = parseInt(currentAttempts);
+        if (attempts >= 5) { // Maximum 5 attempts per hour
+            return false;
+        }
+        await env.VERIFICATION_CODES.put(key, (attempts + 1).toString(), { expirationTtl: 3600 });
+    } else {
+        await env.VERIFICATION_CODES.put(key, "1", { expirationTtl: 3600 });
+    }
+    
+    return true;
 }
 
 /**
@@ -92,6 +118,40 @@ export async function handleEmailVerification(request, env) {
     }
 
     try {
+        // Check rate limiting
+        const isWithinLimit = await checkRateLimit(env, email, type);
+        if (!isWithinLimit) {
+            return new Response(JSON.stringify({ 
+                error: "Too many attempts. Please try again later." 
+            }), {
+                status: 429,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        // Check if email exists in database
+        const existingUser = await getUserByEmail(env, email);
+
+        // For registration: email should NOT exist
+        if (type === 'registration' && existingUser) {
+            return new Response(JSON.stringify({ 
+                error: "Email is already registered" 
+            }), {
+                status: 409,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        // For password reset: email should exist
+        if (type === 'reset' && !existingUser) {
+            return new Response(JSON.stringify({ 
+                error: "Email is not registered" 
+            }), {
+                status: 404,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
         const resend = new Resend(env.RESEND_API_KEY);
         const verificationCode = generateVerificationCode();
         
