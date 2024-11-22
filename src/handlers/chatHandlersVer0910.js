@@ -9,12 +9,119 @@ import { getUserByEmail } from "../models/userModel";
 
 const OPENAI_TTS_TEXT_LENGTH_MAX = 4096;
 
-export const handleVisualChat = withAuth(async (request, env, openai, email) => {
-  return handleChat(request, env, openai, true, email);
-});
+const THEMES = {
+  ADVENTURE: {
+    keywords: ['adventure', 'explore', 'quest', 'journey', 'discover', 'mission', 'expedition', 'treasure', 'map'],
+    storyPrompt: 'Create an exciting adventure with thrilling discoveries and challenges that can be overcome through wit, courage, and determination. Keep the excitement high while ensuring all challenges and resolutions are age-appropriate.',
+    qnaPrompt: 'Address questions about exploration, discovery, and adventure with enthusiasm, while emphasizing safety, preparation, and responsible decision-making.'
+  },
+  FAMILY: {
+    keywords: ['family', 'parents', 'siblings', 'home', 'relatives'],
+    storyPrompt: 'Focus on warm family relationships, understanding between generations, and the value of family bonds.',
+    qnaPrompt: 'Address family-related questions with sensitivity, emphasizing positive family dynamics and healthy relationships.'
+  },
+  FRIENDSHIP: {
+    keywords: ['friends', 'friendship', 'teamwork', 'loyalty'],
+    storyPrompt: 'Emphasize the power of friendship, loyalty, and working together to overcome challenges.',
+    qnaPrompt: 'Focus on developing and maintaining healthy friendships, resolving conflicts, and being a good friend.'
+  },
+  MAGIC: {
+    keywords: ['magic', 'wizard', 'witch', 'spell', 'magical', 'enchanted'],
+    storyPrompt: 'Weave magical elements naturally into the story while maintaining believability and wonder.',
+    qnaPrompt: 'Discuss magical concepts in relation to imagination, creativity, and wonder, while distinguishing fantasy from reality.'
+  },
+  SCIFI: {
+    keywords: ['space', 'future', 'robot', 'technology', 'science'],
+    storyPrompt: 'Incorporate age-appropriate science fiction concepts that spark curiosity about science and technology.',
+    qnaPrompt: 'Explain scientific and technological concepts in an engaging, age-appropriate way while encouraging curiosity.'
+  },
+  COMEDY: {
+    keywords: ['funny', 'humor', 'laugh', 'joke', 'silly'],
+    storyPrompt: 'Include light humor and fun situations while avoiding sarcasm or mean-spirited jokes.',
+    qnaPrompt: 'Address questions with a touch of humor when appropriate, while maintaining educational value.'
+  },
+  GROWTH: {
+    keywords: ['learn', 'grow', 'change', 'understand', 'realize'],
+    storyPrompt: 'Focus on personal growth, self-discovery, and overcoming internal challenges.',
+    qnaPrompt: 'Guide learning and personal development with encouraging, constructive responses.'
+  }
+};
+
+function detectThemes(userMessage) {
+  let messageText = '';
+  if (typeof userMessage === 'string') {
+    messageText = userMessage;
+  } else if (typeof userMessage === 'object' && userMessage !== null) {
+    // Handle array of content objects (for visual chat)
+    if (Array.isArray(userMessage.content)) {
+      messageText = userMessage.content
+        .filter(item => item.type === 'text')
+        .map(item => item.text)
+        .join(' ');
+    }
+  }
+  const detected = Object.entries(THEMES)
+    .filter(([_, theme]) => 
+      theme.keywords.some(keyword => 
+        messageText.toLowerCase().includes(keyword)
+      )
+    )
+    .map(([key, theme]) => ({ type: key, prompts: theme }));
+  
+  if (detected.length === 0) {
+    const themeKeys = Object.keys(THEMES);
+    const randomTheme = themeKeys[Math.floor(Math.random() * themeKeys.length)];
+    console.log(`[${new Date().toISOString()}] detectThemes: Random a theme: "${randomTheme}"`);
+    return [{ type: randomTheme, prompts: THEMES[randomTheme] }];
+  }
+  console.log(`[${new Date().toISOString()}] detectThemes: Detect a theme: "${detected.map(theme => theme.type).join('\n')}"`);
+  return detected;
+}
+
+function generateSystemPrompt(user_age, currentLocalTime, isVisual, visualTask, detectedThemes, queryType) {
+  const isStory = queryType === 'story';
+  
+  let prompt = `You are POPO, a ${isStory ? 'creative storyteller' : 'knowledgeable educator'} for a ${user_age}-year-old audience. Your ${isStory ? 'stories' : 'responses'} should be:
+- Age-appropriate and positive
+- ${isStory ? 'Imaginative yet relatable' : 'Educational and engaging'}
+- Free of intense or frightening content
+- Told in plain text without special formatting
+
+${detectedThemes.map(theme => 
+  isStory ? theme.prompts.storyPrompt : theme.prompts.qnaPrompt
+).join('\n')}
+
+${isStory ? `When crafting your story:
+- Start in a unique, original way, avoiding common openings like "Once upon a time"
+- Make the opening immediately engaging and relevant to the story's theme` : ''}
+
+${currentLocalTime ? `Current local time: ${currentLocalTime}` : ''}`;
+
+  if (isVisual) {
+    prompt += `\nBased on the provided image${visualTask ? ` related to ${visualTask}` : ''}.`;
+  }
+
+  if (isStory) {
+    const timeObj = currentLocalTime ? new Date(currentLocalTime) : null;
+    if (timeObj) {
+      const hour = timeObj.getHours();
+      if (hour >= 19 || hour < 6) {
+        prompt += '\nAs it\'s evening/night time, conclude with a calming, sleep-appropriate ending.';
+      } else {
+        prompt += '\nConclude with an energetic, day-appropriate ending.';
+      }
+    }
+  }
+  console.log(`[${new Date().toISOString()}] generateSystemPrompt: System prompt:\n${prompt}`);
+  return prompt;
+}
 
 export const handleTextualChat = withAuth(async (request, env, openai, email) => {
   return handleChat(request, env, openai, false, email);
+});
+
+export const handleVisualChat = withAuth(async (request, env, openai, email) => {
+  return handleChat(request, env, openai, true, email);
 });
 
 async function handleChat(request, env, openai, isVisual, email) {
@@ -93,58 +200,22 @@ async function handleChat(request, env, openai, isVisual, email) {
     console.log(`[${new Date().toISOString()}] handleChat: Invalid dialog history structure`);
     return new Response('The last message must be from the user', { status: 400 });
   }
+  const lastMessage = dialogHistory[dialogHistory.length - 1];
+  const detectedThemes = detectThemes(lastMessage.content);
+  
+  const systemPrompt = generateSystemPrompt(
+    new Date().getFullYear() - user.yob,
+    currentLocalTime,
+    isVisual,
+    visualTask,
+    detectedThemes,
+    queryType
+  );
 
-  const getTimeMessage = (currentLocalTime) => {
-    return currentLocalTime ? `The current local time on the client device is ${currentLocalTime}.` : '';
-  };
-
-  const baseStoryPrompt = (currentLocalTime, isVisual, visualTask) => {
-    let prompt = `You are a creative storyteller, POPO, tasked with crafting engaging stories for a young audience, around ${user_age} years old. Your stories should be fun, imaginative, and maintain a positive, lighthearted tone. Incorporate elements like friendly, magical creatures or futuristic science fiction themes. Avoid content that feels too intense or scary.
-
-${getTimeMessage(currentLocalTime)}
-
-When concluding your story, consider the time of day, if mentioned. For instance, before 7:00 PM, wrap up with a cheerful message, like, "Storytime is over! I hope you had a fun day and are ready for more exciting adventures!" After 7:00 PM, use a more calming phrase, such as, "The story is over. Good night and have sweet dreams!" Adjust the ending to suit the time or context as needed.
-
-Start your story in a unique, original way, avoiding common openings like "Once upon a time." Ensure the language is positive, uplifting, and appropriate for younger listeners. Use plain text only, without special characters or formatting, to avoid issues with text-to-speech functionality.
-
-Now, let's begin!`;
-
-    if (isVisual) {
-      prompt += '\n\nBased on the image provided.';
-      if (visualTask) {
-        prompt += ` The image is related to ${visualTask}.`;
-      }
-    }
-
-    return prompt;
-  };
-
-  const baseQnaPrompt = (currentLocalTime, isVisual, visualTask) => {
-    let prompt = `You are a childhood educator, POPO. Respond to questions in a way that is informative, educational, engaging, and interactive for a curious child. Use plain text only, without special characters or formatting, to avoid issues with text-to-speech functionality.
-
-${getTimeMessage(currentLocalTime)}
-
-Now, let's begin.`;
-
-    if (isVisual) {
-      prompt += '\n\nAnswer questions about the provided image.';
-      if (visualTask) {
-        prompt += ` The image is related to ${visualTask}.`;
-      }
-    }
-
-    return prompt;
-  };
-
-  const systemPrompts = {
-    story: baseStoryPrompt(currentLocalTime, isVisual, visualTask),
-    qna: baseQnaPrompt(currentLocalTime, isVisual, visualTask),
-  };
-
-  const welcomePrompts = {
-    story: `Welcome to POPO's Storytime! What kind of magical adventure or heartwarming tale would you like to hear?`,
-    qna: `Hi, I'm POPO. What questions do you have for me today?`,
-  };
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    ...dialogHistory
+  ];
 
   const openaiParams = {
     story: {
@@ -157,11 +228,6 @@ Now, let's begin.`;
     }
   };
 
-  const messages = [
-    { role: 'system', content: systemPrompts[queryType] },
-    { role: 'assistant', content: welcomePrompts[queryType] },
-    ...dialogHistory
-  ];
 
   let { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
@@ -175,7 +241,7 @@ Now, let's begin.`;
       dialogHistory.push(assistantMessage);
 
       const paragraphs = assistantMessage.content.split('\n').filter(para => para.trim() !== '' && /[a-zA-Z0-9]/.test(para));
-      console.log(`[${new Date().toISOString()}] handleChat: Split response into ${paragraphs.length} paragraphs`);
+        console.log(`[${new Date().toISOString()}] handleChat: Split response into ${paragraphs.length} paragraphs`);
 
       for (let i = 0; i < paragraphs.length; i++) {
         if (paragraphs[i].length > OPENAI_TTS_TEXT_LENGTH_MAX) {
@@ -184,53 +250,48 @@ Now, let's begin.`;
         }
         console.log(`[${new Date().toISOString()}] handleChat: Generating audio for paragraph ${i + 1}`);
         const audioDataUri = await getOpenAIAudio(openai, paragraphs[i], user.preferred_voice);
-
-        const responseChunk = {
-          dialogHistory: dialogHistory,
+        
+        const chunk = {
+          dialogHistory,
           currentParagraph: {
             index: i,
             text: paragraphs[i],
             audio: audioDataUri,
           }
         };
-        await writer.write(encoder.encode(JSON.stringify(responseChunk) + '\n'));
+        await writer.write(encoder.encode(JSON.stringify(chunk) + '\n'));
         
         console.log(`[${new Date().toISOString()}] handleChat: Streamed audio for paragraph ${i + 1}`);
         console.log('Response summary:', {
-          dialogHistoryLength: responseChunk.dialogHistory.length,
-          lastMessageContent: responseChunk.dialogHistory[responseChunk.dialogHistory.length - 1].content.substring(0, 100) + '...',
-          audioSegmentsIndex: responseChunk.currentParagraph.index,
-          audioDataUriLength: responseChunk.currentParagraph.audio.length
+          dialogHistoryLength: chunk.dialogHistory.length,
+          lastMessageContent: chunk.dialogHistory[chunk.dialogHistory.length - 1].content.substring(0, 100) + '...',
+          audioSegmentsIndex: chunk.currentParagraph.index,
+          audioDataUriLength: chunk.currentParagraph.audio.length
         });
       }
-
-    } catch (error) {
-      console.error(`[${new Date().toISOString()}] handleChat: Error in request processing:`, error);
-      const errorResponse = {
-        dialogHistory: dialogHistory,
+  } catch (error) {
+      const errorChunk = {
+        dialogHistory,
         currentParagraph: null,
         error: error.message
       };
-      await writer.write(encoder.encode(JSON.stringify(errorResponse) + '\n'));
+      await writer.write(encoder.encode(JSON.stringify(errorChunk) + '\n'));
     } finally {
       await writer.close();
     }
   };
-
   // Start the streaming process
   streamResponse();
 
-  // Return the readable stream
   return new Response(readable, {
     headers: { 'Content-Type': 'application/json' }
   });
 }
 
 async function getOpenAIChatResponse(openai, messages, params) {
-  console.log(`[${new Date().toISOString()}] getOpenAIChatResponse: Sending request to OpenAI`);
   const chatCompletion = await openai.chat.completions.create({
     model: 'gpt-4o-2024-08-06',
-    messages: messages,
+    messages,
     ...params,
   });
 
