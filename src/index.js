@@ -54,10 +54,9 @@ export default {
       "/textual-chat/v0910": (req) => handleTextualChatVer0910(req, env, openai),
       "/visual-chat/v0910": (req) => handleVisualChatVer0910(req, env, openai),
 
-      "/auth/register/verify": (req) => handleEmailVerification(req, env),
+      "/auth/email-verify": (req) => handleEmailVerification(req, env),
       "/auth/register": (req) => handleUserRegistration(req, env),
       "/auth/login": (req) => handleUserLogin(req, env),
-      "/auth/reset-password/verify": (req) => handleEmailVerification(req, env),
       "/auth/reset-password": (req) => handlePasswordReset(req, env),
       "/users/me": (req) => handleUserInfoRetrieval(req, env),
       "/users/me/updated": (req) => handleUserInfoUpdate(req, env),

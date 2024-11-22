@@ -104,15 +104,15 @@ export async function handleEmailVerification(request, env) {
     // Validate email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email || !emailRegex.test(email)) {
-        return new Response(JSON.stringify({ error: "Invalid email address" }), {
-            status: 400,
+        return new Response(JSON.stringify({ error: "Please enter a valid email address (e.g., user@example.com)" }), {
+            status: 422,
             headers: { "Content-Type": "application/json" }
         });
     }
 
     if (!['registration', 'reset-pw'].includes(type)) {
-        return new Response(JSON.stringify({ error: "Invalid verification type" }), {
-            status: 400,
+        return new Response(JSON.stringify({ error: "Invalid verification type. Must be either 'registration' or 'reset-pw'" }), {
+            status: 422,
             headers: { "Content-Type": "application/json" }
         });
     }

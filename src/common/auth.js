@@ -107,3 +107,35 @@ export async function generateJWT(user, secret) {
 export async function verifyJWT(token, secret) {
   return await verify(token, secret);
 }
+
+/**
+ * Validates password strength requirements.
+ * @param {string} password 
+ * @returns {{isValid: boolean, error: string|null}}
+ */
+export function validatePasswordStrength(password) {
+  if (password.length < 8 || password.length > 50) {
+      return { isValid: false, error: "Password must be between 8 and 50 characters" };
+  }
+
+  const requirements = [
+      [/[a-z]/, "lowercase letter"],
+      [/[A-Z]/, "uppercase letter"],
+      [/[0-9]/, "number"],
+      [/[^A-Za-z0-9]/, "special character"],
+  ];
+
+  const missingReqs = requirements
+      .filter(([regex]) => !regex.test(password))
+      .map(([, desc]) => desc);
+
+  if (missingReqs.length > 0) {
+      const errorMsg = missingReqs.length === 1
+          ? `Password must contain at least one ${missingReqs[0]}`
+          : `Password must contain at least one of each: ${missingReqs.join(', ')}`;
+      return { isValid: false, error: errorMsg };
+  }
+
+  return { isValid: true, error: null };
+}
+
