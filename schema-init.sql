@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS user_account (
     preferred_voice TEXT DEFAULT 'nova' NOT NULL,
     cached_story_count INTEGER CHECK (cached_story_count >= 0) NOT NULL
 );
-
+DROP INDEX IF EXISTS idx_user_account_email;
+CREATE INDEX IF NOT EXISTS idx_user_account_email ON user_account(email);
 
 INSERT INTO user_account (
     id,
@@ -27,8 +28,8 @@ INSERT INTO user_account (
     0,
     'admin@aoxin.ai',
     'aoxin-administrator',
-    'ui3ga4MqRIkMI7A1hvgdKhaaPJJNnLZRLZZ2S2RDtll++FqAGWvYKLpaDJXFhcoo', -- aoxin-ai
-    2024,
+    '5M4ekhIiZzRLKtqfdlEeY360kRrLP+Y3cmXLAusJq/dXBLAqEUhfNH2SEAv4Q39r', -- aoxin-AI0
+    2012,
     'admin',
     'echo',
     5
